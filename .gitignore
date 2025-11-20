@@ -1,6 +1,9 @@
 # Hide API-keys
 api_keys.env
 
+# Hide some test stuff
+test_personas.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
