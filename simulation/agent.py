@@ -52,7 +52,7 @@ class Agent():
 
     def __init__(self, a_id: int, agent_dict: dict):
         
-        self.a_id = a_id
+        self.a_id: int = agent_dict['a_id']
         self.party: str = agent_dict['party']
         self.bio: str = agent_dict['bio']
 
@@ -82,8 +82,10 @@ Your bio should be based on your persona.'''
         2. Like & dislike posts.'''
 
         prompt = f'''You are viewing your social media feed.
+You will choose an action and base your 
+        
 Choose exactly ONE of the following actions:
-1. Repost: Share an existing post from your POST FEED.
+1. Repost: Share an existing post from your POST FEED, only if FEED is not empty.
 2. Post News: Write a short post about one news headline in your NEWS FEED.
 3. Observe.
 
@@ -135,10 +137,10 @@ The following is your persona:
 
         messages = [
             {"role": "system", "content": [{
-                "type": "input_text",
+                "type": "text",
                 "text": sys_msg}]},
             {"role": "user", "content": [{
-                "type": "input_text",
+                "type": "text",
                 "text": prompt}]}
                 ]
 

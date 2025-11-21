@@ -20,12 +20,13 @@ def log_timestep(run_id: int, intervention: str, timestep: int, agent_id: int,
     
     data = {'run_id': run_id, 'intervention': intervention, 'timestep': timestep, 'agent_id': agent_id, 'action': action, 'new_post_id': new_post_id, 'repost_target_id': repost_target_id,
             'liked_ids': liked_ids, 'disliked_ids': disliked_ids, 'followed_agent_id': followed_agent_id}
-    path = Path(__file__).parents[1].joinpath(f'data/{intervention}/run{run_id}_timesteps.jsonl')
+    log_path = Path(__file__).parents[1].joinpath(f'data/{intervention}/run{run_id}_timesteps.jsonl')
 
-    path.mkdir(exist_ok=True, parents=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8', errors='ignore')
+    log_path.parent.mkdir(exist_ok=True, parents=True)
+    with open (log_path, 'a', encoding='utf-8', errors='ignore') as f:
+        f.write(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
 
-def run_simulation(num_agents: int, num_timesteps: int, agents_path: Path, intervention: str, start_timestep: int = 1, openai_model: str = 'gpt-4o-mini', **kwargs):
+def run_simulation(num_agents: int, num_timesteps: int, agents_path: Path, news_path: Path, intervention: str, start_timestep: int = 1, openai_model: str = 'gpt-4o-mini', **kwargs):
     '''Run a full simulation with given parameters.'''
 
     run_id = kwargs.get('run_id', None)
@@ -43,10 +44,21 @@ def run_simulation(num_agents: int, num_timesteps: int, agents_path: Path, inter
     Agent.llm_model = openai_model
 
     # Load agents
-    agent_data = json.loads(path.read_text(encoding='utf-8', errors='ignore'))
-    platform.agents = [Agent(a_id+1, agent_dict) for a_id, agent_dict in enumerate(agent_data) if a_id < num_agents]
+    with open(agents_path, 'r', encoding='utf-8', errors='ignore') as f:
+        agent_data = [json.loads(line) for line in f]
+    # print(agent_data)
+    platform.agents = {(a_id+1): Agent(a_id+1, agent_dict) for a_id, agent_dict in enumerate(agent_data) if a_id < num_agents}
     print(len(platform.agents))
     print(platform.agents)
+    for k, v in platform.agents.items():
+        print(k)
+
+    input('Check')
+
+    # Load news
+    with open(news_path, 'r', encoding='utf-8', errors='ignore') as f:
+        platform.headlines = [hl.rstrip() for hl in f.readlines()]
+    print(platform.headlines[:10])
 
     input('Check')
 
@@ -66,15 +78,21 @@ def run_simulation(num_agents: int, num_timesteps: int, agents_path: Path, inter
         news_feed = platform.get_news_feed()
         print(f'News feed:\n{news_feed}')
 
-        break # finish platform.get_post_feed() and platfom.get_news_feed() before continuing.
+        # finish platform.get_post_feed() and platfom.get_news_feed() before continuing.
 
         feed_action = agent.feed_action(post_feed=post_feed, news_feed=news_feed)
+        print(feed_action.action)
+        print(feed_action.post_content)
+        input()
 
         if feed_action.action == 'REPOST':
             # get profile of post author and ask to follow or not
             author = platform.get_author(feed_action.repost_target_id)
             profile = platform.get_profile(agent=author, viewer=agent)
 
+            print('Author', author)
+            print('Profile:', profile)
+            input('Check')
             profile_action = agent.profile_action(profile=profile)
 
             if profile_action.action == 'FOLLOW':
@@ -88,7 +106,7 @@ def run_simulation(num_agents: int, num_timesteps: int, agents_path: Path, inter
         if feed_action.action == 'WRITE_POST':
             # register post on platform and get Post object to log
             post = platform.write_post(author=agent, content=feed_action.post_content, timestep=timestep)
-            post_id = post.id
+            post_id = post.p_id
         else:
             post = None
             post_id = None
@@ -132,9 +150,12 @@ if __name__ == "__main__":
     
     num_agents = 5
     num_timesteps = 10
-    path = Path(__file__).parents[1].joinpath(f'generate_personas/test_personas.json')
+    agents_path = Path(__file__).parents[1].joinpath(f'generate_personas/test_personas.jsonl')
+    news_path = Path(__file__).parents[1].joinpath(f'generate_personas/test_news.txt')
     intervention = 'none'
     
-    run_simulation(num_agents, num_timesteps, path, intervention)
-    print(path)
+    # run_simulation(num_agents, num_timesteps, agents_path, news_path, intervention)
+    print("FIX POST FEED AND PROFILE FEED!")
+    print("SHOW POST_ID AND CONTENT + maybe more")
+    
     pass

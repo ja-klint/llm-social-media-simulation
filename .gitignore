@@ -3,6 +3,9 @@ api_keys.env
 
 # Hide some test stuff
 test_personas.json
+test_personas.jsonl
+test.py
+test_news.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

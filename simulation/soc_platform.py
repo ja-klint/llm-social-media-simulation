@@ -1,4 +1,5 @@
 from agent import Agent
+import random
 
 class Post():
     def __init__(self, p_id: int, author: Agent, content: str, timestep: int):
@@ -14,21 +15,46 @@ class Platform():
     def __init__(self, agents: dict[int, Agent] = {}, posts: dict[int, Post] = {}):
         self.agents: dict[int, Agent] = agents # key: AgentID, value: Agent object
         self.posts: dict[int, Post] = posts # key: PostID, value: Post object
+        self.headlines: list[str] = []
     
     def get_post_feed(self, viewer: Agent, number: int = 8) -> str:
         '''Generate string representation of an agent's post feed.'''
         
         # Pick {number} posts from self.posts
         # Use if statements to customize what info is shown based on intervention
-        post_feed = f''''''
+        post_feed = ''
+        post_list = []
+
+        if True: # Change to if intervention == reverse chronological
+            all_p_ids = list(self.posts.keys())
+            all_p_ids.sort(reverse=True)
+
+            for i in all_p_ids:
+                post = self.posts[i]
+                if (post.author != viewer):
+                    post_list.append(post)
+                
+                # break at desired number
+                if len(post_list) >= number:
+                    break
+
+
+        for post in post_list:
+            profile += f'''\n\n{post}'''
+
+        if post_feed == '':
+            post_feed = 'Empty'
 
         return post_feed
 
     def get_news_feed(self, number: int = 6) -> str:
         '''Generate string representation of the news feed.'''
 
-        # Pick {number} random news stories from database
-        news_feed = f''''''
+        # Pick {number} random news stories from self.headlines
+        news_feed = ''
+        headlines = random.sample(self.headlines, number) # Maybe remove already presented or posted news?
+        for i, hl in enumerate(headlines):
+            news_feed += f'\n{i}. {hl}'
 
         return news_feed
     
@@ -44,8 +70,11 @@ class Platform():
         '''Get the most recent posts from agent.'''
 
         recent_posts = []
+        all_p_ids = list(self.posts.keys())
+        all_p_ids.sort(reverse=True)
 
-        for i in list(self.posts.keys()).sort(reverse=True):
+
+        for i in all_p_ids:
             post = self.posts[i]
             if post.author == agent:
                 recent_posts.append(post)
@@ -89,7 +118,11 @@ class Platform():
 
     def write_post(self, author: Agent, content: str, timestep: int) -> Post:
         # get next post_id and create Post object
-        post_id = max(self.posts.keys())+1
+        if self.posts:
+            post_id = int(max(self.posts.keys())+1)
+        else:
+            post_id = 1
+
         new_post = Post(post_id, author, content, timestep)
 
         # add post to platform
