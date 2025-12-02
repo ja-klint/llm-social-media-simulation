@@ -8,7 +8,7 @@ import random
 import json
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path='llm-social-media-simulation/simulation/api_keys.env') # temp fix
+load_dotenv(dotenv_path='simulation/api_keys.env') # temp fix
 
 
 class Simulation():
@@ -19,32 +19,33 @@ class Simulation():
         self.num_timesteps = num_timesteps
         self.intervention = intervention
         self.agents_path = agents_path
-        self.news_path = news_path
+        # self.news_path = news_path # OLD
         self.openai_model = openai_model
         self.kwargs = kwargs
 
         self.run_id = self.get_run_id()
         self.platform = Platform()
         self.platform.agents = self.load_agents()
-        self.platform.headlines = self.load_news()
+        # self.platform.headlines = self.load_news() # OLD
+        self.platform.news_path = news_path
         
     def get_run_id(self) -> int:
         r_id = self.kwargs.get('run_id', None)
         if r_id == None:
-            # Get next run_id (take max from existing run files?)
+            # Get next run_id (take max from existing run files)
             r_id = 0 # TODO Set automatically
 
         return r_id
 
     def load_agents(self):
         with open(self.agents_path, 'r', encoding='utf-8', errors='ignore') as f:
-            agent_data = [json.loads(line) for line in f]
+            agent_list = [json.loads(line) for line in f]
 
-        return {agent_dict['a_id']: Agent(agent_dict) for i, agent_dict in enumerate(agent_data) if i < self.num_agents}
+        return {agent_dict['a_id']: Agent(agent_dict) for i, agent_dict in enumerate(agent_list) if i < self.num_agents}
     
-    def load_news(self):
-        with open(self.news_path, 'r', encoding='utf-8', errors='ignore') as f:
-            return [hl.rstrip() for hl in f.readlines()]
+    # def load_news(self):
+    #     with open(self.news_path, 'r', encoding='utf-8', errors='ignore') as f:
+    #         return [hl.rstrip() for hl in f.readlines()]
         
     def pick_agent(self):
         return self.platform.agents[random.randint(1, len(self.platform.agents))]
@@ -66,7 +67,7 @@ class Simulation():
             self.log_post(new_post_id, post_content, agent_id)
 
     def log_post(self, post_id: int, content: str, author_id: int):
-        post_data = {'run_id': self.run_id, 'intervention': self.intervention, 'timestep': self.timestep, 'post_id': post_id, 'content': content, 'agent_id': author_id}
+        post_data = {'run_id': self.run_id, 'intervention': self.intervention, 'timestep': self.timestep, 'post_id': post_id, 'content': content, 'a_id': author_id}
 
         post_path = Path(__file__).parents[1].joinpath(f'data/{self.intervention}/run{self.run_id}_posts.jsonl')
 
@@ -83,14 +84,15 @@ class Simulation():
 
         # select one agent to perform actions
         agent: Agent = self.pick_agent()
-        print('Picked agent:', agent.a_id)
+        print('Picked agent:', agent)
         input('Check')
 
         # get feed, ask for action
         post_feed = self.platform.get_post_feed(agent)
-        news_feed = self.platform.get_news_feed()
+        news_feed = self.platform.get_news_feed() # fix to not load file each time
 
         feed_action = agent.feed_action(post_feed=post_feed, news_feed=news_feed)
+        print('---------------------------------------------------------------------')
         print(feed_action.action)
         print(feed_action.post_content)
         input('Check')
@@ -183,13 +185,13 @@ class Simulation():
 if __name__ == "__main__":
     # Example and test code:
     
-    run_id = -1 # test id
+    run_id = -2 # test id
     intervention = 'test'
 
     num_agents = 5
     num_timesteps = 10
-    agents_path = Path(__file__).parents[1].joinpath(f'generate_personas/test_personas.jsonl')
-    news_path = Path(__file__).parents[1].joinpath(f'generate_personas/test_news.txt')
+    agents_path = Path(__file__).parents[1].joinpath(f'generate_agents/agents.jsonl')
+    news_path = Path(__file__).parent.joinpath('News_Category_Dataset_v3.jsonl')
 
     simulation = Simulation(num_agents, num_timesteps, intervention, agents_path, news_path, run_id=run_id)
     simulation.run()

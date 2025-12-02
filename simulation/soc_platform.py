@@ -1,4 +1,7 @@
 from agent import Agent
+
+from pathlib import Path
+import json
 import random
 
 class Post():
@@ -15,9 +18,9 @@ class Post():
 
 class Platform():
     def __init__(self, agents: dict[int, Agent] = {}, posts: dict[int, Post] = {}):
-        self.agents: dict[int, Agent] = agents # key: AgentID, value: Agent object
-        self.posts: dict[int, Post] = posts # key: PostID, value: Post object
-        self.headlines: list[str] = []
+        self.agents: dict[int, Agent] = agents # key: a_id, value: Agent object
+        self.posts: dict[int, Post] = posts # key: p_id, value: Post object
+        self.news_path: Path
     
     def get_post_feed(self, viewer: Agent, number: int = 8) -> str:
         '''Generate string representation of an agent's post feed.'''
@@ -46,27 +49,31 @@ class Platform():
         # add posts to feed string
         post_feed = ''
         for post in post_list:
-            post_feed += f'\n\nPost ID: {post.p_id}'
+            post_feed += f'Post ID: {post.p_id}'
             post_feed += f'\nLikes: {len(post.likes)}'
             post_feed += f'\nDislikes: {len(post.dislikes)}'
-            post_feed += f'\nContent: {post.content}'
+            post_feed += f'\nContent: {post.content}\n\n'
             
 
         if post_feed == '':
             post_feed = 'Empty'
 
-        return post_feed
-
+        return post_feed.rstrip()
+    
     def get_news_feed(self, number: int = 6) -> str:
         '''Generate string representation of the news feed.'''
 
-        # Pick {number} random news stories from self.headlines
-        news_feed = ''
-        headlines = random.sample(self.headlines, number) # Maybe remove already presented or posted news?
-        for i, hl in enumerate(headlines):
-            news_feed += f'\n\n{i+1}. {hl}'
+        # load all news_articles
+        with open(self.news_path, 'r', encoding='utf-8', errors='ignore') as f:
+            news_data = [json.loads(line) for line in f]
 
-        return news_feed
+        # select random (by category for intervention?)
+        news_articles = random.sample(news_data, number)
+        news_feed = ''
+        for news_item in news_articles:
+            news_feed += f'Headline: {news_item['headline']}\nDescription: {news_item['short_description']}\n\n'
+
+        return news_feed.rstrip()
     
     def get_author(self, post: Post | None = None, post_id: int | None = None) -> Agent:
         '''Get author from Post object or post_id.'''
@@ -120,14 +127,14 @@ class Platform():
         
         profile += f'\nBio: {bio}'
         
-        profile += '\n\nRecent posts and reposts:'
+        profile += '\n\nRecent posts and reposts:\n'
         for post in recent_posts:
-            profile += f'\n\nPost ID: {post.p_id}'
+            profile += f'Post ID: {post.p_id}'
             profile += f'\nLikes: {len(post.likes)}'
             profile += f'\nDislikes: {len(post.dislikes)}'
-            profile += f'\nContent: {post.content}'
+            profile += f'\nContent: {post.content}\n\n'
 
-        return profile
+        return profile.rstrip()
 
     def write_post(self, timestep: int, author: Agent, content: str, is_repost: bool = False, ref_post_id: int | None = None) -> Post:
         # get next post_id and create Post object

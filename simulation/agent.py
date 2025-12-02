@@ -63,17 +63,7 @@ class Agent():
         self.liked_posts: list[int] = [] # list of PostIDs
 
     def __str__(self):
-        return f'ID: {self.a_id}, Bio: {self.bio}'
-    
-    def generate_bio(self): # will likely move to persona_generator.py
-        '''Prompt agent to write bio based on persona.'''
-
-        prompt = '''Write a short (max 150 words) bio for your profile page.
-Your bio should be based on your persona.'''
-
-        bio: Bio = self.get_llm_response(prompt=prompt, response_format=Bio)
-        
-        return bio.bio
+        return f'#{self.a_id}. {self.party}'
     
     def feed_action(self, post_feed: str, news_feed: str):
         '''Take actions on the feed page.
@@ -90,9 +80,11 @@ Choose exactly ONE of the following actions:
 
 In addition to your chosen action, you should also like or dislike any number of posts from your POST FEED.
         
-POST FEED: {post_feed}
+POST FEED:
+{post_feed}
 
-NEWS FEED: {news_feed}'''
+NEWS FEED:
+{news_feed}'''
         
         print(prompt)
         input("ACheck")

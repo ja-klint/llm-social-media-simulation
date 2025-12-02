@@ -2,11 +2,12 @@
 api_keys.env
 
 # Hide some test stuff
-test_personas.json
+all_personas.json
 test.py
 
-# Hide generated data
+# Hide data files
 data/
+News_Category_Dataset_v3.jsonl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
