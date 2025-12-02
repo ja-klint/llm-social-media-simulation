@@ -10,106 +10,126 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path='llm-social-media-simulation/simulation/api_keys.env') # temp fix
 
-def pick_agent(agents: dict[int, Agent]):
-    return agents[random.randint(1, len(agents))]
 
-def log_timestep(run_id: int, intervention: str, timestep: int, agent_id: int,
-                action: str | None, new_post_id: int | None, repost_target_id: int | None,
-                liked_ids: list[int], disliked_ids: list[int],
-                followed_agent_id: int | None):
+class Simulation():
+
+    def __init__(self, num_agents: int, num_timesteps: int, intervention: str, agents_path: Path, news_path: Path, openai_model: str = 'gpt-4o-mini', **kwargs):
+        
+        self.num_agents = num_agents
+        self.num_timesteps = num_timesteps
+        self.intervention = intervention
+        self.agents_path = agents_path
+        self.news_path = news_path
+        self.openai_model = openai_model
+        self.kwargs = kwargs
+
+        self.run_id = self.get_run_id()
+        self.platform = Platform()
+        self.platform.agents = self.load_agents()
+        self.platform.headlines = self.load_news()
+        
+    def get_run_id(self) -> int:
+        r_id = self.kwargs.get('run_id', None)
+        if r_id == None:
+            # Get next run_id (take max from existing run files?)
+            r_id = 0 # TODO Set automatically
+
+        return r_id
+
+    def load_agents(self):
+        with open(self.agents_path, 'r', encoding='utf-8', errors='ignore') as f:
+            agent_data = [json.loads(line) for line in f]
+
+        return {agent_dict['a_id']: Agent(agent_dict) for i, agent_dict in enumerate(agent_data) if i < self.num_agents}
     
-    data = {'run_id': run_id, 'intervention': intervention, 'timestep': timestep, 'agent_id': agent_id, 'action': action, 'new_post_id': new_post_id, 'repost_target_id': repost_target_id,
-            'liked_ids': liked_ids, 'disliked_ids': disliked_ids, 'followed_agent_id': followed_agent_id}
-    log_path = Path(__file__).parents[1].joinpath(f'data/{intervention}/run{run_id}_timesteps.jsonl')
+    def load_news(self):
+        with open(self.news_path, 'r', encoding='utf-8', errors='ignore') as f:
+            return [hl.rstrip() for hl in f.readlines()]
+        
+    def pick_agent(self):
+        return self.platform.agents[random.randint(1, len(self.platform.agents))]
 
-    log_path.parent.mkdir(exist_ok=True, parents=True)
-    with open (log_path, 'a', encoding='utf-8', errors='ignore') as f:
-        f.write(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
+    def log_timestep(self, agent_id: int,
+                    action: str | None, new_post_id: int | None, post_content: str | None,
+                    repost_target_id: int | None, liked_ids: list[int], disliked_ids: list[int],
+                    followed_agent_id: int | None):
+        
+        timestep_log = {'run_id': self.run_id, 'intervention': self.intervention, 'timestep': self.timestep, 'agent_id': agent_id, 'action': action, 'new_post_id': new_post_id, 'repost_target_id': repost_target_id,
+                'liked_ids': liked_ids, 'disliked_ids': disliked_ids, 'followed_agent_id': followed_agent_id}
+        log_path = Path(__file__).parents[1].joinpath(f'data/{self.intervention}/run{self.run_id}_timesteps.jsonl')
 
-def run_simulation(num_agents: int, num_timesteps: int, agents_path: Path, news_path: Path, intervention: str, start_timestep: int = 1, openai_model: str = 'gpt-4o-mini', **kwargs):
-    '''Run a full simulation with given parameters.'''
+        log_path.parent.mkdir(exist_ok=True, parents=True) # create path
+        with open (log_path, 'a', encoding='utf-8', errors='ignore') as f:
+            f.write(json.dumps(timestep_log, indent=2, ensure_ascii=False) + '\n')
 
-    run_id = kwargs.get('run_id', None)
-    if run_id == None:
-        # Get next run_id
-        # (take max from existing run files?)
+        if action == 'WRITE_POST':
+            self.log_post(new_post_id, post_content, agent_id)
 
-        run_id = 0 # temporary
+    def log_post(self, post_id: int, content: str, author_id: int):
+        post_data = {'run_id': self.run_id, 'intervention': self.intervention, 'timestep': self.timestep, 'post_id': post_id, 'content': content, 'agent_id': author_id}
 
-    # Initialize platform
-    platform = Platform()
+        post_path = Path(__file__).parents[1].joinpath(f'data/{self.intervention}/run{self.run_id}_posts.jsonl')
 
-    # Initialize agents
-    Agent.llm_client = OpenAI()
-    Agent.llm_model = openai_model
+        post_path.parent.mkdir(exist_ok=True, parents=True) # create path
+        with open (post_path, 'a', encoding='utf-8', errors='ignore') as f:
+            f.write(json.dumps(post_data, indent=2, ensure_ascii=False) + '\n')
+        
 
-    # Load agents
-    with open(agents_path, 'r', encoding='utf-8', errors='ignore') as f:
-        agent_data = [json.loads(line) for line in f]
-    # print(agent_data)
-    platform.agents = {(a_id+1): Agent(a_id+1, agent_dict) for a_id, agent_dict in enumerate(agent_data) if a_id < num_agents}
-    print(len(platform.agents))
-    print(platform.agents)
-    for k, v in platform.agents.items():
-        print(k)
-
-    input('Check')
-
-    # Load news
-    with open(news_path, 'r', encoding='utf-8', errors='ignore') as f:
-        platform.headlines = [hl.rstrip() for hl in f.readlines()]
-    print(platform.headlines[:10])
-
-    input('Check')
-
-    for timestep in range(start_timestep, num_timesteps+1): # Maybe create timestep function and Simulation class
-        print('Timestep:', timestep)
-        # set default values for new timestep
-        agent, feed_action, profile_action = [None]*3
+    def perform_timestep(self):
+        print('Timestep:', self.timestep)
+        
+        # # set default values for new timestep
+        # agent, feed_action, profile_action = [None]*3
 
         # select one agent to perform actions
-        agent = pick_agent(platform.agents)
-        print('Agent picked:', agent)
+        agent: Agent = self.pick_agent()
+        print('Picked agent:', agent.a_id)
         input('Check')
 
         # get feed, ask for action
-        post_feed = platform.get_post_feed(agent)
-        print(f'Post feed:\n{post_feed}')
-        news_feed = platform.get_news_feed()
-        print(f'News feed:\n{news_feed}')
-
-        # finish platform.get_post_feed() and platfom.get_news_feed() before continuing.
+        post_feed = self.platform.get_post_feed(agent)
+        news_feed = self.platform.get_news_feed()
 
         feed_action = agent.feed_action(post_feed=post_feed, news_feed=news_feed)
         print(feed_action.action)
         print(feed_action.post_content)
-        input()
+        input('Check')
 
         if feed_action.action == 'REPOST':
+            
             # get profile of post author and ask to follow or not
-            author = platform.get_author(feed_action.repost_target_id)
-            profile = platform.get_profile(agent=author, viewer=agent)
+            # only if agent is not already followed
 
-            print('Author', author)
-            print('Profile:', profile)
-            input('Check')
-            profile_action = agent.profile_action(profile=profile)
-
-            if profile_action.action == 'FOLLOW':
-                followed = author.a_id
-            else:
+            author = self.platform.get_author(post_id=feed_action.repost_target_id)
+            if author in agent.following:
+                profile_action = None
                 followed = None
+            else:
+
+                profile = self.platform.get_profile(agent=author, viewer=agent)
+
+                profile_action = agent.profile_action(profile=profile)
+                print(profile_action.action)
+                input('Check')
+
+                if profile_action.action == 'FOLLOW':
+                    followed = author.a_id
+                else:
+                    followed = None
         else:
             profile_action = None
             followed = None
 
         if feed_action.action == 'WRITE_POST':
             # register post on platform and get Post object to log
-            post = platform.write_post(author=agent, content=feed_action.post_content, timestep=timestep)
+            post = self.platform.write_post(timestep=self.timestep, author=agent, content=feed_action.post_content)
             post_id = post.p_id
+            post_content = post.content
+
         else:
             post = None
             post_id = None
+            post_content = None
 
         if feed_action.action == 'OBSERVE':
             action = None
@@ -119,43 +139,61 @@ def run_simulation(num_agents: int, num_timesteps: int, agents_path: Path, news_
         likes = feed_action.likes
         dislikes = feed_action.dislikes
 
-        platform.register_likes(likes)
-        platform.register_dislikes(dislikes)
+        self.platform.register_likes(agent, likes)
+        self.platform.register_dislikes(agent, dislikes)
 
         repost_target_id = feed_action.repost_target_id
+
+        return (agent.a_id, action, post_id, post_content, repost_target_id, likes, dislikes, followed) # data to be logged
+
+    def run(self, start_timestep: int = 1):
+        '''Run a full simulation with given parameters.'''
+
+        # Get timestep queue
+        timesteps = range(start_timestep, num_timesteps+1)
+
+        # Initialize llm
+        Agent.llm_client = OpenAI()
+        Agent.llm_model = self.openai_model
+
+        for timestep in timesteps:
+            self.timestep = timestep
+            
+            finished_timestep = self.perform_timestep()
+            self.log_timestep(*finished_timestep)
+
+    def _WIP_continue_run(self, add_timesteps: int = 0):
+        '''Continue a previously started simulation.
+
+        :param int add_timesteps: Leave as 0 to continue unfinished simulations.
+        '''
+
+        # get saved state from files and set following variables
         
-        log_timestep(run_id=run_id, intervention=intervention, timestep=timestep, agent_id=agent.a_id, action=action, new_post_id=post_id, repost_target_id=repost_target_id, liked_ids=likes, disliked_ids=dislikes, followed_agent_id=followed)
+        
+        num_agents: int
+        num_timesteps: int # add add_timesteps
+        intervention: str
+        current_timestep: int
+        openai_model: str
 
-def continue_run(run_id: int, add_timesteps: int = 0):
-    '''Continue a previously started simulation run.
-
-    :param int run_id: The id of the simulation run to continue.
-    :param int add_timesteps: Leave as 0 to continue unfinished simulations.
-    '''
-
-    # get saved state from files and set following variables
-    num_agents: int
-
-    num_timesteps: int # add add_timesteps
-
-    intervention: str
-    current_timestep: int
-    openai_model: str
-
-    run_simulation(num_agents=num_agents, num_timesteps=num_timesteps, intervention=intervention, openai_model=openai_model, start_timestep=current_timestep+1, run_id=run_id)
+        self.run(start_timestep=current_timestep+1)
 
 
 if __name__ == "__main__":
     # Example and test code:
     
+    run_id = -1 # test id
+    intervention = 'test'
+
     num_agents = 5
     num_timesteps = 10
     agents_path = Path(__file__).parents[1].joinpath(f'generate_personas/test_personas.jsonl')
     news_path = Path(__file__).parents[1].joinpath(f'generate_personas/test_news.txt')
-    intervention = 'none'
-    
-    # run_simulation(num_agents, num_timesteps, agents_path, news_path, intervention)
-    print("FIX POST FEED AND PROFILE FEED!")
-    print("SHOW POST_ID AND CONTENT + maybe more")
-    
+
+    simulation = Simulation(num_agents, num_timesteps, intervention, agents_path, news_path, run_id=run_id)
+    simulation.run()
+
+    print('-------------------\nSimulation finished!')
+
     pass

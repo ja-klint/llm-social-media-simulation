@@ -2,14 +2,16 @@ from agent import Agent
 import random
 
 class Post():
-    def __init__(self, p_id: int, author: Agent, content: str, timestep: int):
+    def __init__(self, timestep: int, p_id: int, author: Agent, content: str, is_repost: bool, ref_post_id: int | None = None):
+        self.created_timestep: int = timestep
         self.p_id = p_id
         self.author = author
         self.content = content
-        self.created_timestep: int = timestep
+        self.is_repost = is_repost
+        self.ref_post_id = ref_post_id
 
-        self.likes: int = 0
-        self.dislikes: int = 0
+        self.likes: list[Agent] = []
+        self.dislikes: list[Agent] = []
 
 class Platform():
     def __init__(self, agents: dict[int, Agent] = {}, posts: dict[int, Post] = {}):
@@ -19,28 +21,36 @@ class Platform():
     
     def get_post_feed(self, viewer: Agent, number: int = 8) -> str:
         '''Generate string representation of an agent's post feed.'''
+
+        # TODO dont show same post twice,
         
         # Pick {number} posts from self.posts
         # Use if statements to customize what info is shown based on intervention
-        post_feed = ''
-        post_list = []
+        post_list: list[Post] = []
 
         if True: # Change to if intervention == reverse chronological
+            
+            # select most recent posts that are not from the viewing agent
             all_p_ids = list(self.posts.keys())
             all_p_ids.sort(reverse=True)
 
             for i in all_p_ids:
                 post = self.posts[i]
-                if (post.author != viewer):
+                if (post.author != viewer): # filter out feed viewers own posts
                     post_list.append(post)
                 
-                # break at desired number
+                # break at desired number of posts
                 if len(post_list) >= number:
                     break
 
-
+        # add posts to feed string
+        post_feed = ''
         for post in post_list:
-            profile += f'''\n\n{post}'''
+            post_feed += f'\n\nPost ID: {post.p_id}'
+            post_feed += f'\nLikes: {len(post.likes)}'
+            post_feed += f'\nDislikes: {len(post.dislikes)}'
+            post_feed += f'\nContent: {post.content}'
+            
 
         if post_feed == '':
             post_feed = 'Empty'
@@ -54,7 +64,7 @@ class Platform():
         news_feed = ''
         headlines = random.sample(self.headlines, number) # Maybe remove already presented or posted news?
         for i, hl in enumerate(headlines):
-            news_feed += f'\n{i}. {hl}'
+            news_feed += f'\n\n{i+1}. {hl}'
 
         return news_feed
     
@@ -80,63 +90,68 @@ class Platform():
                 recent_posts.append(post)
 
             # break at desired number
-            if len(recent_posts) >= 5:
+            if len(recent_posts) >= 3:
                 break
 
         return recent_posts
     
     def get_mutual_follows(self, agent1: Agent, agent2: Agent):
         '''Return the number of '''
+        pass # prob remove
 
     def get_profile(self, agent: Agent, viewer: Agent) -> str:
         '''Generate string representation of an agent's profile.'''
 
         agent_id = agent.a_id
-        followers = agent.followers
+        followers = len(agent.followers)
         party = agent.party
 
         bio = agent.bio
         recent_posts = self.get_profile_posts(agent=agent)
 
         # Construct profile page based on intervention
-        profile = f'AgentID: {agent_id}'
-        
-        if True:
-            profile += f'\nFollowers: {followers}'
-        profile += f'\n\nBio: {bio}'
+        profile = f'User ID: {agent_id}'
         
         if True:
             profile += f'\nPolitical party: {party}'
         
-        profile += f'\n\nBio: {bio}'
-
-        profile += '\n\nRecent posts:'
+        if True:
+            profile += f'\nFollowers: {followers}'
+        
+        profile += f'\nBio: {bio}'
+        
+        profile += '\n\nRecent posts and reposts:'
         for post in recent_posts:
-            profile += f'''\n\n{post}'''
+            profile += f'\n\nPost ID: {post.p_id}'
+            profile += f'\nLikes: {len(post.likes)}'
+            profile += f'\nDislikes: {len(post.dislikes)}'
+            profile += f'\nContent: {post.content}'
 
         return profile
 
-    def write_post(self, author: Agent, content: str, timestep: int) -> Post:
+    def write_post(self, timestep: int, author: Agent, content: str, is_repost: bool = False, ref_post_id: int | None = None) -> Post:
         # get next post_id and create Post object
         if self.posts:
             post_id = int(max(self.posts.keys())+1)
         else:
             post_id = 1
 
-        new_post = Post(post_id, author, content, timestep)
+        new_post = Post(timestep, post_id, author, content, is_repost, ref_post_id)
 
         # add post to platform
         self.posts[post_id] = new_post
         return new_post
     
-    def register_likes(self, post_ids: list[int]):
-        '''Increment likes attribute for Post objects'''
+    def register_likes(self, agent: Agent, post_ids: list[int]):
+        '''Add agent to likes list for Post objects'''
 
         for post_id in post_ids:
-            self.posts[post_id].likes += 1
+            if agent not in self.posts[post_id].likes:
+                self.posts[post_id].likes.append(agent)
     
-    def register_dislikes(self, post_ids: list[int]):
-        '''Increment dislikes attribute for Post objects'''
+    def register_dislikes(self, agent: Agent, post_ids: list[int]):
+        '''Add agent to dislikes list for Post objects'''
 
         for post_id in post_ids:
-            self.posts[post_id].dislikes += 1
+            if agent not in self.posts[post_id].dislikes:
+                self.posts[post_id].dislikes.append(agent)

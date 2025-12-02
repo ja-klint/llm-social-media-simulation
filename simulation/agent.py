@@ -50,7 +50,7 @@ class Agent():
     llm_model: str = None # Set from main.py
     request_control:str = '' # require human input before sending LLM request. 'auto' to disable.
 
-    def __init__(self, a_id: int, agent_dict: dict):
+    def __init__(self, agent_dict: dict):
         
         self.a_id: int = agent_dict['a_id']
         self.party: str = agent_dict['party']
@@ -82,21 +82,20 @@ Your bio should be based on your persona.'''
         2. Like & dislike posts.'''
 
         prompt = f'''You are viewing your social media feed.
-You will choose an action and base your 
         
 Choose exactly ONE of the following actions:
-1. Repost: Share an existing post from your POST FEED, only if FEED is not empty.
-2. Post News: Write a short post about one news headline in your NEWS FEED.
+1. Repost: Share an existing post from your POST FEED, only if POST FEED is not empty.
+2. Post: Write a short post about one news headline in your NEWS FEED.
 3. Observe.
 
-You may also choose to like or dislike any number of posts from your POST FEED.
+In addition to your chosen action, you should also like or dislike any number of posts from your POST FEED.
         
-POST FEED:
-{post_feed}
+POST FEED: {post_feed}
 
-NEWS FEED:
-{news_feed}'''
+NEWS FEED: {news_feed}'''
         
+        print(prompt)
+        input("ACheck")
         action: FeedAction = self.get_llm_response(prompt, FeedAction)
         return action
 
@@ -105,13 +104,15 @@ NEWS FEED:
 
         # Make customizable for different interventions (show follower count, political stance, etc..)
         prompt = f'''You are viewing a user's profile page.
-Choose one of the following actions:
+Choose one of the  actions:
 1. Follow the user.
 2. Leave the profile.
 
 PROFILE PAGE:
 {profile}'''
         
+        print(prompt)
+        input("ACheck")
         action: ProfileAction = self.get_llm_response(prompt, ProfileAction)
 
         return action
