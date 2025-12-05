@@ -1,27 +1,30 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 from typing import Literal, Optional
 
 from openai import OpenAI
 import time
 
 # Define the response structures for LLM-outputs
-class Bio(BaseModel):
-    '''Defines agent's response format for bio.'''
-
-    bio: str = Field(description='A short bio based on your persona. (max 160)', max_length=160)
-
 class FeedAction(BaseModel):
     '''Defines agent's response format for actions on the feed page.'''
     
     action: Literal['REPOST', 'WRITE_POST', 'OBSERVE'] = Field(description='The specific action you want to take.')
 
     repost_target_id: Optional[int] = Field(default=None, description='If action is REPOST, provide the corresponding Post ID here. Otherwise null.')
-    post_content: Optional[str] = Field(default=None, description='If action is WRITE_POST, write your post text here (max 280 chars). Otherwise null.', max_length=280)
+    post_content: Optional[str] = Field(default=None, description='If action is WRITE_POST, write your post text here (MUST be 50–200 chars).', max_length=240)
 
-    likes: list[int] = Field(default=[], description='List of Post IDs to like.')
-    dislikes: list[int] = Field(default=[], description='List of Post IDs to dislike.')
+    likes: list[int] = Field(default=[], description='List of Post IDs from POST FEED to like.')
+    dislikes: list[int] = Field(default=[], description='List of Post IDs from POST FEED to dislike.')
 
-    # ^^ ask for short explanation?
+    # @field_validator("post_content")
+    # def validate_length(cls, v, info):
+    #     action = info.data.get("action")
+    #     if action == "WRITE_POST":
+    #         if v is None:
+    #             raise ValueError("WRITE_POST requires post_content.")
+    #         if len(v) < 50 or len(v) > 220:
+    #             raise ValueError(f"post_content must be 50–220 characters (got {len(v)}).")
+    #     return v
 
     # Raise error if LLM output is incorrect
     @model_validator(mode='after')
@@ -29,12 +32,22 @@ class FeedAction(BaseModel):
         if self.action == 'REPOST' and self.repost_target_id == None:
             raise ValueError('Action is REPOST but no repost_target_id provided')
         
-        if self.action == 'WRITE_POST' and not self.post_content:
-            raise ValueError("Action is WRITE_POST but no post_content provided.")
+        if self.action == 'WRITE_POST': 
+            if not self.post_content:
+                raise ValueError('Action is WRITE_POST but no post_content provided.')
+            # elif len(self.post_content) > 220:
+            #     input('TOO LONG POST')
+            #     raise ValueError(f"post_content must be 50–220 characters (got {len(self.post_content)}).")
             
         if self.action == 'OBSERVE':
             self.repost_target_id = None
             self.post_content = None
+
+        # ensure only unique values
+        self.likes = list(set(self.likes))
+        self.dislikes = list(set(self.dislikes))
+        if (set(self.likes) & set(self.dislikes)):
+            input('WARNING! Same post in likes and dislikes!')
             
         return self
 
@@ -52,7 +65,7 @@ class Agent():
 
     def __init__(self, agent_dict: dict):
         
-        self.a_id: int = agent_dict['a_id']
+        self.a_id: int = agent_dict['agent_id']
         self.party: str = agent_dict['party']
         self.bio: str = agent_dict['bio']
 
@@ -61,6 +74,7 @@ class Agent():
         self.followers: dict[int, Agent] = {} # key: AgentID, value: Agent object
         self.following: dict[int, Agent] = {} # key: AgentID, value: Agent object
         self.liked_posts: list[int] = [] # list of PostIDs
+        self.disliked_posts: list[int] = [] # list of PostIDs
 
     def __str__(self):
         return f'#{self.a_id}. {self.party}'
@@ -75,7 +89,7 @@ class Agent():
         
 Choose exactly ONE of the following actions:
 1. Repost: Share an existing post from your POST FEED, only if POST FEED is not empty.
-2. Post: Write a short post about one news headline in your NEWS FEED.
+2. Post: Write a short 50 to 200 char post about one news headline in your NEWS FEED.
 3. Observe.
 
 In addition to your chosen action, you should also like or dislike any number of posts from your POST FEED.
@@ -86,8 +100,6 @@ POST FEED:
 NEWS FEED:
 {news_feed}'''
         
-        print(prompt)
-        input("ACheck")
         action: FeedAction = self.get_llm_response(prompt, FeedAction)
         return action
 
@@ -103,8 +115,6 @@ Choose one of the  actions:
 PROFILE PAGE:
 {profile}'''
         
-        print(prompt)
-        input("ACheck")
         action: ProfileAction = self.get_llm_response(prompt, ProfileAction)
 
         return action
@@ -113,7 +123,13 @@ PROFILE PAGE:
         '''Generates instructions to define Agent's persona and more.'''
 
         sys_msg = f'''You are a user on a social media platform.
-On the platform you can repost, post, like, dislike, and follow others or just observe.
+The platform contains a POST FEED, a NEWS FEED, and PROFILE PAGES.
+
+On the POST FEED you can post, repost or observe. You can also like and dislike any number of posts.
+You must not like and dislike the same post.
+The NEWS FEED is only used as inspiration for your posts.
+
+On a PROFILE PAGE you can follow the user or leave the page.
 
 You have a persona with a distinct political identity and personality.
 You must act consistently with this persona at all times.
@@ -143,7 +159,8 @@ The following is your persona:
         response = Agent.llm_client.beta.chat.completions.parse(
             model=model,
             messages=messages,
-            response_format=response_format
+            response_format=response_format,
+            max_completion_tokens=1000
         )
         time.sleep(0.12) # respect api rate limit
 

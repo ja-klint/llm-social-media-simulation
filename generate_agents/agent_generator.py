@@ -41,7 +41,7 @@ while num_of_democrats > 0 or num_of_republicans > 0 or num_of_nonpartisan > 0:
     selected_agent = agent_data.pop(random_index) # avoid duplicates
 
     agent = {
-        'a_id': a_id,
+        'agent_id': a_id,
         'party': selected_agent['party'],
         'bio': selected_agent['bio'],
         'persona': selected_agent['persona']}
