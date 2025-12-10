@@ -11,20 +11,10 @@ class FeedAction(BaseModel):
     action: Literal['REPOST', 'WRITE_POST', 'OBSERVE'] = Field(description='The specific action you want to take.')
 
     repost_target_id: Optional[int] = Field(default=None, description='If action is REPOST, provide the corresponding Post ID here. Otherwise null.')
-    post_content: Optional[str] = Field(default=None, description='If action is WRITE_POST, write your post text here (MUST be 50–200 chars).', max_length=240)
+    post_content: Optional[str] = Field(default=None, description='If action is WRITE_POST, write your post text here (MUST be 50–200 chars).', max_length=250)
 
     likes: list[int] = Field(default=[], description='List of Post IDs from POST FEED to like.')
     dislikes: list[int] = Field(default=[], description='List of Post IDs from POST FEED to dislike.')
-
-    # @field_validator("post_content")
-    # def validate_length(cls, v, info):
-    #     action = info.data.get("action")
-    #     if action == "WRITE_POST":
-    #         if v is None:
-    #             raise ValueError("WRITE_POST requires post_content.")
-    #         if len(v) < 50 or len(v) > 220:
-    #             raise ValueError(f"post_content must be 50–220 characters (got {len(v)}).")
-    #     return v
 
     # Raise error if LLM output is incorrect
     @model_validator(mode='after')
@@ -32,12 +22,9 @@ class FeedAction(BaseModel):
         if self.action == 'REPOST' and self.repost_target_id == None:
             raise ValueError('Action is REPOST but no repost_target_id provided')
         
-        if self.action == 'WRITE_POST': 
+        if self.action == 'WRITE_POST':
             if not self.post_content:
                 raise ValueError('Action is WRITE_POST but no post_content provided.')
-            # elif len(self.post_content) > 220:
-            #     input('TOO LONG POST')
-            #     raise ValueError(f"post_content must be 50–220 characters (got {len(self.post_content)}).")
             
         if self.action == 'OBSERVE':
             self.repost_target_id = None
@@ -86,14 +73,11 @@ class Agent():
         2. Like & dislike posts.'''
 
         prompt = f'''You are viewing your social media feed.
-        
-Choose exactly ONE of the following actions:
-1. Repost: Share an existing post from your POST FEED, only if POST FEED is not empty.
-2. Post: Write a short 50 to 200 char post about one news headline in your NEWS FEED.
-3. Observe.
 
-In addition to your chosen action, you should also like or dislike any number of posts from your POST FEED.
-        
+Choose one action and which POST FEED IDs to like/dislike.
+
+Output only the JSON required by the schema. No explanations.
+
 POST FEED:
 {post_feed}
 
@@ -108,9 +92,12 @@ NEWS FEED:
 
         # Make customizable for different interventions (show follower count, political stance, etc..)
         prompt = f'''You are viewing a user's profile page.
-Choose one of the  actions:
-1. Follow the user.
-2. Leave the profile.
+
+Choose one:
+1. FOLLOW the user.
+2. LEAVE the profile.
+
+Output only the JSON required by the schema. No explanations.
 
 PROFILE PAGE:
 {profile}'''
@@ -122,19 +109,27 @@ PROFILE PAGE:
     def sys_instructions(self):
         '''Generates instructions to define Agent's persona and more.'''
 
-        sys_msg = f'''You are a user on a social media platform.
-The platform contains a POST FEED, a NEWS FEED, and PROFILE PAGES.
+        sys_msg = f'''You are a user on a social media platform. Follow these rules exactly.
+OUTPUT: Only a JSON object matching the schema. No extra text.
 
-On the POST FEED you can post, repost or observe. You can also like and dislike any number of posts.
-You must not like and dislike the same post.
-The NEWS FEED is only used as inspiration for your posts.
+ACTIONS:
+- Choose exactly one: REPOST, WRITE_POST, or OBSERVE.
+- REPOST: set repost_target_id to an ID from POST FEED. NEVER invent IDs.
+- WRITE_POST: base on exactly one NEWS_FEED headline; length 50–200 chars; do not repeat the headline verbatim; no hashtags.
+- OBSERVE: post_content and repost_target_id must be null.
 
-On a PROFILE PAGE you can follow the user or leave the page.
+LIKES/DISLIKES:
+- Like/dislike only IDs from POST FEED.
+- Never like and dislike the same post.
 
-You have a persona with a distinct political identity and personality.
-You must act consistently with this persona at all times.
+PROFILE:
+- Choose exactly one: FOLLOW or LEAVE.
 
-The following is your persona:
+PRIORITY: These rules override persona. After rules, act in character per persona.
+
+FINAL CHECK (internal): verify all rules and that JSON matches schema.
+
+PERSONA:
 {self.persona}'''
 
         return sys_msg
