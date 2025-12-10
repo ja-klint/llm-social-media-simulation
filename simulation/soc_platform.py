@@ -2,7 +2,6 @@ from agent import Agent
 
 from pathlib import Path
 import json
-import random
 
 class Post():
     def __init__(self, timestep: int, p_id: int, author: Agent, content: str | None = None, is_repost: bool = False, ref_post_id: int | None = None):
@@ -18,10 +17,10 @@ class Post():
         self.dislikes: list[Agent] = []
 
 class Platform():
-    def __init__(self, agents: dict[int, Agent] = {}, posts: dict[int, Post] = {}):
+    def __init__(self, news_path: Path, agents: dict[int, Agent] = {}, posts: dict[int, Post] = {}):
+        self.news_path = news_path
         self.agents: dict[int, Agent] = agents # key: a_id, value: Agent object
         self.posts: dict[int, Post] = posts # key: p_id, value: Post object
-        self.news_path: Path
         
     def get_original_post(self, p_id: int) -> Post:
         '''Return the original post from a post id.'''
@@ -34,8 +33,6 @@ class Platform():
 
     def get_post_feed(self, viewer: Agent, number: int = 6) -> str:
         '''Generate string representation of an agent's post feed.'''
-
-        # TODO dont show same post twice,
         
         # Pick {number} posts from self.posts
         # Use if statements to customize what info is shown based on intervention
@@ -63,7 +60,7 @@ class Platform():
         
         for post in post_list:
             # Display original post id (don't show repost id)
-            if post.is_repost: 
+            if post.is_repost:
                 post_id = post.ref_post_id
             else:
                 post_id = post.p_id
@@ -79,15 +76,15 @@ class Platform():
 
         return post_feed.rstrip()
     
-    def get_news_feed(self, number: int = 6) -> str:
-        '''Generate string representation of the news feed.'''
+    def get_news_feed(self, rng_generator, number: int = 6) -> str:
+        '''Generate string representation of a random news feed using provided Generator object.'''
 
         # load all news_articles
         with open(self.news_path, 'r', encoding='utf-8', errors='ignore') as f:
             news_data = [json.loads(line) for line in f]
 
         # select random (by category for intervention?)
-        news_articles = random.sample(news_data, number)
+        news_articles = rng_generator.choice(news_data, number, replace=False)
         news_feed = ''
         for news_item in news_articles:
             news_feed += f'Headline: {news_item['headline']}\nDescription: {news_item['short_description']}\n\n'
@@ -156,7 +153,7 @@ class Platform():
         return profile.rstrip()
     
     def repost(self, timestep: int, author: Agent, ref_post_id: int) -> Post:
-        '''Create new post with no content and reference to original post'''
+        '''Create new post with reference to original post and no content.'''
         
         if ref_post_id in self.posts.keys():
             post_id = int(max(self.posts.keys())+1)

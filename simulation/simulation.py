@@ -4,51 +4,65 @@ from agent import Agent, FeedAction, ProfileAction
 from openai import OpenAI
 from pathlib import Path
 
-import random
+import numpy as np
 import json
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path='simulation/api_keys.env') # temp fix
 
-
 class Simulation():
 
-    def __init__(self, num_agents: int, num_timesteps: int, intervention: str, agents_path: Path, news_path: Path, openai_model: str = 'gpt-4o-mini', **kwargs):
+    def __init__(self, num_agents: int, num_timesteps: int, intervention: str, news_path: Path, openai_model: str = 'gpt-4o-mini', **kwargs):
         
         self.num_agents = num_agents
         self.num_timesteps = num_timesteps
         self.intervention = intervention
         self.agents_path = agents_path
-        # self.news_path = news_path # OLD
         self.openai_model = openai_model
-        self.kwargs = kwargs
 
-        self.run_id = self.get_run_id()
-        self.platform = Platform()
-        self.platform.agents = self.load_agents()
-        # self.platform.headlines = self.load_news() # OLD
-        self.platform.news_path = news_path
+        self.run_id = self.get_run_id(kwargs)
+        self.agents_path = self.get_agents_path(kwargs)
+
+        self.platform = Platform(agents=self.load_agents(), news_path=news_path)
+
+        # Use same RNG seeds for corresponding runs for all interventions (blocking)
+        self.agent_rng = np.random.default_rng([abs(self.run_id), 0]) # RNG generator for random agent selection
+        self.news_rng = np.random.default_rng([abs(self.run_id), 1]) # RNG generator for random news feed creation
         
-    def get_run_id(self) -> int:
-        r_id = self.kwargs.get('run_id', None)
+    def get_run_id(self, kwargs: dict[str, any]) -> int:
+        '''Find highest run number in intervention and set run_id to next.'''
+        r_id = kwargs.get('run_id', None)
+
         if r_id == None:
-            # Get next run_id (take max from existing run files)
-            r_id = 0 # TODO Set automatically
+            data_dir = Path(__file__).parents[1].joinpath(f'data/{self.intervention}')
+            files = [int(file.name.lstrip('run').rstrip('_timesteps.jsonl')) for file in data_dir.glob('*timesteps.jsonl') if file.is_file()]
+            if files and max(files) > 0:
+                r_id = max(files)+1
+            else:
+                r_id = 1
 
         return r_id
+    
+    def get_agents_path(self, kwargs: dict[str, any]) -> Path:
+        '''Select agents for current run_id, or use provided Path.'''
+
+        a_path = kwargs.get('agents_path', None)
+
+        if a_path == None:
+            a_path = Path(__file__).parents[1].joinpath(f'generate_agents/run{self.run_id}_agents.jsonl')
+
+        assert a_path.is_file(), f'No file found at {a_path.name}. Please generate agents with agent_generator.py or provide file path explicitly.'
+        return a_path
 
     def load_agents(self):
         with open(self.agents_path, 'r', encoding='utf-8', errors='ignore') as f:
             agent_list = [json.loads(line) for line in f]
 
         return {agent_dict['agent_id']: Agent(agent_dict) for i, agent_dict in enumerate(agent_list) if i < self.num_agents}
-    
-    # def load_news(self):
-    #     with open(self.news_path, 'r', encoding='utf-8', errors='ignore') as f:
-    #         return [hl.rstrip() for hl in f.readlines()]
         
-    def pick_agent(self):
-        return self.platform.agents[random.randint(1, len(self.platform.agents))]
+    def pick_agent(self) -> Agent:
+        '''Select random agent to act for the timestep. Using rng seed based on run_id.'''
+        return self.platform.agents[self.agent_rng.integers(1, len(self.platform.agents), endpoint=True)]
 
     def log_timestep(self, agent_id: int,
                     action: str | None, post_id: int | None, post_content: str | None,
@@ -67,7 +81,7 @@ class Simulation():
             self.log_post(post_id, post_content, agent_id)
 
     def log_post(self, post_id: int, content: str, author_id: int):
-        post_data = {'run_id': self.run_id, 'intervention': self.intervention, 'timestep': self.timestep, 'post_id': post_id, 'content': content, 'agent_id': author_id}
+        post_data = {'run_id': self.run_id, 'intervention': self.intervention, 'timestep': self.timestep, 'agent_id': author_id, 'post_id': post_id, 'content': content}
 
         post_path = Path(__file__).parents[1].joinpath(f'data/{self.intervention}/run{self.run_id}_posts.jsonl')
 
@@ -81,37 +95,35 @@ class Simulation():
         
         # # set default values for new timestep
             
+        action = None
         post = None
         post_id = None
         post_content = None
-        
         profile_action = None
         followed = None
         
-        # agent, feed_action, profile_action = [None]*3
-
         # select one agent to perform actions
         agent: Agent = self.pick_agent()
         print('Picked agent:', agent)
 
         # get feed, ask for action
         post_feed = self.platform.get_post_feed(agent)
-        news_feed = self.platform.get_news_feed() # fix to not load file each time
+        news_feed = self.platform.get_news_feed(self.news_rng) # fix to not load file each time
 
         feed_action = agent.feed_action(post_feed=post_feed, news_feed=news_feed)
+        action = feed_action.action
         repost_target_id = feed_action.repost_target_id
         print('---------------------------------------------------------------------')
         print(feed_action.action)
         print(feed_action.post_content)
 
-        if feed_action.action == 'REPOST':
+        if action == 'REPOST':
             
             # get profile of post author and ask to follow or not
             # only if agent is not already followed
 
             post = self.platform.repost(timestep=self.timestep, author=agent, ref_post_id=repost_target_id)
             post_id = post.p_id
-            
             self.platform.posts[repost_target_id].reposters.append(agent) # add agent to reposters
 
             author = self.platform.get_author(post_id=repost_target_id)
@@ -123,23 +135,17 @@ class Simulation():
                 if profile_action.action == 'FOLLOW':
                     followed = author.a_id
                     self.platform.register_follow(follower=agent, target=author)
+            else:
+                print('TEST! ALREADY FOLLOWED------------------------')
 
-                else:
-                    followed = None
-        else:
-            profile_action = None
-            followed = None
-
-        if feed_action.action == 'WRITE_POST':
-            # register post on platform and get Post object to log
+        if action == 'WRITE_POST':
+            # register post on platform and get Post object to log p_id and content
             post = self.platform.write_post(timestep=self.timestep, author=agent, content=feed_action.post_content)
             post_id = post.p_id
             post_content = post.content
 
-        if feed_action.action == 'OBSERVE':
-            action = None
-        else:
-            action = feed_action.action
+        if action == 'OBSERVE':
+            pass
 
         # only keep new likes and dislikes
         likes = list(set(feed_action.likes) - set(agent.liked_posts))
@@ -187,15 +193,15 @@ class Simulation():
 if __name__ == "__main__":
     # Example and test code:
     
-    run_id = -9 # test id
+    run_id = -11 # test id
     intervention = 'test'
 
     num_agents = 5
-    num_timesteps = 25
-    agents_path = Path(__file__).parents[1].joinpath(f'generate_agents/agents.jsonl')
+    num_timesteps = 30
     news_path = Path(__file__).parent.joinpath('News_Category_Dataset_v3.jsonl')
+    agents_path = Path(__file__).parents[1].joinpath(f'generate_agents/test_agents.jsonl')
 
-    simulation = Simulation(num_agents, num_timesteps, intervention, agents_path, news_path, run_id=run_id)
+    simulation = Simulation(num_agents, num_timesteps, intervention, news_path, agents_path=agents_path, run_id=run_id)
     simulation.run()
 
     print('-------------------\nSimulation finished!')
