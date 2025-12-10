@@ -6,11 +6,14 @@ import random
 from_file = 'all_personas.json'
 
 # file to save personas to
-to_file = 'agents.jsonl'
+to_file = 'run3_agents.jsonl'
 
 num_of_democrats = 22
 num_of_republicans = 22
 num_of_nonpartisan = 6
+# num_of_democrats = 2
+# num_of_republicans = 2
+# num_of_nonpartisan = 1
 total_number_of_agents = num_of_democrats + num_of_republicans + num_of_nonpartisan
 
 print('Total number of Agents to generate:', total_number_of_agents)
