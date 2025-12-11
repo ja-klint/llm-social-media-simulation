@@ -4,11 +4,12 @@ from agent import Agent, FeedAction, ProfileAction
 from openai import OpenAI
 from pathlib import Path
 
+import time
 import numpy as np
 import json
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path='simulation/api_keys.env') # temp fix
+load_dotenv(dotenv_path='simulation/api_keys.env')
 
 class Simulation():
 
@@ -67,10 +68,10 @@ class Simulation():
     def log_timestep(self, agent_id: int,
                     action: str | None, post_id: int | None, post_content: str | None,
                     repost_target_id: int | None, liked_ids: list[int], disliked_ids: list[int],
-                    followed_agent_id: int | None):
+                    followed_agent_id: int | None, shown_post_ids: list[int] | None):
         
         timestep_log = {'run_id': self.run_id, 'intervention': self.intervention, 'timestep': self.timestep, 'agent_id': agent_id, 'action': action, 'post_id': post_id, 'repost_target_id': repost_target_id,
-                'liked_ids': liked_ids, 'disliked_ids': disliked_ids, 'followed_agent_id': followed_agent_id}
+                'liked_ids': liked_ids, 'disliked_ids': disliked_ids, 'followed_agent_id': followed_agent_id, 'shown_post_ids': shown_post_ids}
         log_path = Path(__file__).parents[1].joinpath(f'data/{self.intervention}/run{self.run_id}_timesteps.jsonl')
 
         log_path.parent.mkdir(exist_ok=True, parents=True) # create path
@@ -101,13 +102,14 @@ class Simulation():
         post_content = None
         profile_action = None
         followed = None
+        shown_post_ids = None
         
         # select one agent to perform actions
         agent: Agent = self.pick_agent()
         print('Picked agent:', agent)
 
         # get feed, ask for action
-        post_feed = self.platform.get_post_feed(agent)
+        post_feed, shown_post_ids = self.platform.get_post_feed(agent)
         news_feed = self.platform.get_news_feed(self.news_rng) # fix to not load file each time
 
         feed_action = agent.feed_action(post_feed=post_feed, news_feed=news_feed)
@@ -154,12 +156,15 @@ class Simulation():
         self.platform.register_likes(agent, likes)
         self.platform.register_dislikes(agent, dislikes)
 
-        return (agent.a_id, action, post_id, post_content, repost_target_id, likes, dislikes, followed) # data to be logged
+        return (agent.a_id, action, post_id, post_content, repost_target_id, likes, dislikes, followed, shown_post_ids) # data to be logged
 
     def run(self, start_timestep: int = 1):
         '''Run a full simulation with given parameters.'''
 
-        # Get timestep queue
+        # Start timer
+        start_time = time.time()
+
+        # Get timestep range
         timesteps = range(start_timestep, self.num_timesteps+1)
 
         # Initialize llm
@@ -168,40 +173,77 @@ class Simulation():
 
         for timestep in timesteps:
             self.timestep = timestep
+
+            # Print progress every 5% of timesteps
+            progress = 100*timestep/timesteps[-1]
+            if round(progress, 0) % 5 == 0:
+                bars = int(round(progress/5, 0))
+                dashes = 20-bars
+                progress_bar = '█'*bars + '-'*dashes
+
+                elapsed_time = time.time()-start_time
+                est_remain = int(round((elapsed_time/(progress/100) - elapsed_time), 0))
+                est_time_str = f'{est_remain//3600}h:{est_remain%3600//60}m:{est_remain%60}s'
+                        
+                print(f'Progress: |{progress_bar}| {progress}% Complete')
+                print(f'Estimated time remaining: {est_time_str}')
+
+            # Refresh client every 500 timesteps
+            if timestep % 500 == 0:
+                Agent.llm_client = OpenAI()
             
             finished_timestep = self.perform_timestep()
             self.log_timestep(*finished_timestep)
-
-    def _WIP_continue_run(self, add_timesteps: int = 0):
-        '''Continue a previously started simulation.
-
-        :param int add_timesteps: Leave as 0 to continue unfinished simulations.
-        '''
-
-        # get saved state from files and set following variables
         
-        
-        num_agents: int
-        num_timesteps: int # add add_timesteps
-        intervention: str
-        current_timestep: int
-        openai_model: str
+        ### After finished ###
 
-        self.run(start_timestep=current_timestep+1)
+        # Stop timer
+        end_time = time.time()
+        s = int(round((end_time-start_time), 0))
+        finish_time_string = f'{s//3600}h:{s%3600//60}m:{s%60}s'
 
+        # Get token usage and calculate cost
+        total_input_tokens = sum(agent.used_tokens_input for agent in self.platform.agents.values())
+        total_output_tokens = sum(agent.used_tokens_output for agent in self.platform.agents.values())
+        total_cached_tokens = sum(agent.used_tokens_cached for agent in self.platform.agents.values())
+        predicted_cost = round(((0.6 / 1000000) * total_output_tokens) + ((0.15 / 1000000) * (total_input_tokens - total_cached_tokens) + ((0.075 / 1000000) * total_cached_tokens)), 4)
+
+        # Get request stats
+        total_requests = sum(agent.requests for agent in self.platform.agents.values())
+        total_responses = sum(agent.valid_responses for agent in self.platform.agents.values())
+        total_refusals = sum(agent.req_refusals for agent in self.platform.agents.values())
+
+        # Present info
+        print(f'''
+----------------------------------------------------------
+Simulation finished!
+
+Intervention: {self.intervention} | Run: {self.run_id}
+
+Elapsed time: {finish_time_string}
+Elapsed timesteps: {timesteps[-1]}
+
+Total LLM requests: {total_requests}
+Total LLM responses: {total_responses}
+Total LLM refusals: {total_refusals}
+
+Total input tokens: {total_input_tokens}
+Total output tokens: {total_output_tokens}
+Total cached tokens: {total_cached_tokens}
+Predicted cost: ${predicted_cost} ≈ {predicted_cost*9.45} SEK
+----------------------------------------------------------
+''')
 
 if __name__ == "__main__":
     # Example and test code:
     
-    run_id = -11 # test id
+    run_id = -104 # test id
     intervention = 'test'
 
     num_agents = 5
-    num_timesteps = 30
+    num_timesteps = 5
     news_path = Path(__file__).parent.joinpath('News_Category_Dataset_v3.jsonl')
     agents_path = Path(__file__).parents[1].joinpath(f'generate_agents/test_agents.jsonl')
 
     simulation = Simulation(num_agents, num_timesteps, intervention, news_path, agents_path=agents_path, run_id=run_id)
     simulation.run()
-
-    print('-------------------\nSimulation finished!')
