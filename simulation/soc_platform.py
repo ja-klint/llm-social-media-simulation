@@ -19,8 +19,20 @@ class Post():
 class Platform():
     def __init__(self, news_path: Path, agents: dict[int, Agent] = {}, posts: dict[int, Post] = {}):
         self.news_path = news_path
+        self.news_data = self.load_news()
         self.agents: dict[int, Agent] = agents # key: a_id, value: Agent object
         self.posts: dict[int, Post] = posts # key: p_id, value: Post object
+    
+    def load_news(self):
+        '''Load all news headlines.'''
+
+        news_data = []
+        with open(self.news_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                news = json.loads(line)
+                news_data.append((news['headline'], news['short_description']))
+        
+        return news_data
         
     def get_original_post(self, p_id: int) -> Post:
         '''Return the original post from a post id.'''
@@ -31,7 +43,7 @@ class Platform():
         else:
             return post
 
-    def get_post_feed(self, viewer: Agent, number: int = 6) -> str:
+    def get_post_feed(self, viewer: Agent, number: int = 5) -> tuple[str, list[int]]:
         '''Generate string representation of an agent's post feed.'''
         
         # Pick {number} posts from self.posts
@@ -74,20 +86,19 @@ class Platform():
         if post_feed == '':
             post_feed = 'Empty'
 
-        return post_feed.rstrip()
+        shown_post_ids = [post.p_id for post in post_list]
+
+        return (post_feed.rstrip(), shown_post_ids) # Returns post feed string and a list of the post ids being presented
     
-    def get_news_feed(self, rng_generator, number: int = 6) -> str:
+    def get_news_feed(self, rng_generator, number: int = 5) -> str:
         '''Generate string representation of a random news feed using provided Generator object.'''
 
-        # load all news_articles
-        with open(self.news_path, 'r', encoding='utf-8', errors='ignore') as f:
-            news_data = [json.loads(line) for line in f]
-
         # select random (by category for intervention?)
-        news_articles = rng_generator.choice(news_data, number, replace=False)
+        news_articles = rng_generator.choice(self.news_data, number, replace=False)
         news_feed = ''
         for news_item in news_articles:
-            news_feed += f'Headline: {news_item['headline']}\nDescription: {news_item['short_description']}\n\n'
+            news_feed += f'Headline: {news_item[0]}\n'
+            news_feed += f'Description: {news_item[1]}\n\n'
 
         return news_feed.rstrip()
     
@@ -105,7 +116,6 @@ class Platform():
         recent_posts = []
         all_p_ids = list(self.posts.keys())
         all_p_ids.sort(reverse=True)
-
 
         for i in all_p_ids:
             post = self.get_original_post(i)
