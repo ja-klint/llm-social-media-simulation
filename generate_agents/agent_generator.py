@@ -6,7 +6,7 @@ import random
 from_file = 'all_personas.json'
 
 # file to save personas to
-to_file = 'run3_agents.jsonl'
+to_file = 'test_agents.jsonl'
 
 num_of_democrats = 22
 num_of_republicans = 22
@@ -41,13 +41,13 @@ agent_list = []
 a_id = 1
 while num_of_democrats > 0 or num_of_republicans > 0 or num_of_nonpartisan > 0:
     random_index = random.randrange(len(agent_data))
-    selected_agent = agent_data.pop(random_index) # avoid duplicates
+    selected_agent:dict = agent_data.pop(random_index) # avoid duplicates
 
     agent = {
         'agent_id': a_id,
         'party': selected_agent['party'],
         'bio': selected_agent['bio'],
-        'persona': selected_agent['persona']}
+        'persona': selected_agent['persona'].rstrip()}
 
     if agent['party'] == 'Democrat' and num_of_democrats > 0:
         print(f'Selected {agent['party']} #{num_of_democrats}')
