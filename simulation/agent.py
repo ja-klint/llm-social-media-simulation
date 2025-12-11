@@ -1,8 +1,9 @@
 from pydantic import BaseModel, Field, model_validator, field_validator
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
 from typing import Literal, Optional
+import logging
 
 from openai import OpenAI
-import time
 
 # Define the response structures for LLM-outputs
 class FeedAction(BaseModel):
@@ -63,18 +64,24 @@ class Agent():
         self.liked_posts: list[int] = [] # list of PostIDs
         self.disliked_posts: list[int] = [] # list of PostIDs
 
+        # For tracking simulation info
+        self.used_tokens_input: int = 0
+        self.used_tokens_output: int = 0
+        self.used_tokens_cached: int = 0
+
+        self.requests: int = 0
+        self.valid_responses: int = 0
+        self.req_refusals: int = 0
+
     def __str__(self):
         return f'#{self.a_id}. {self.party}'
     
     def feed_action(self, post_feed: str, news_feed: str):
-        '''Take actions on the feed page.
-        
-        1. Repost, post, or observe.
-        2. Like & dislike posts.'''
+        '''Produce actions on the feed page.'''
 
         prompt = f'''You are viewing your social media feed.
 
-Choose one action and which POST FEED IDs to like/dislike.
+Choose one action and which POST IDs to like/dislike.
 
 Output only the JSON required by the schema. No explanations.
 
@@ -83,12 +90,12 @@ POST FEED:
 
 NEWS FEED:
 {news_feed}'''
-        
-        action: FeedAction = self.get_llm_response(prompt, FeedAction)
+        print(prompt)
+        action: FeedAction = self.produce_request(prompt, FeedAction)
         return action
 
     def profile_action(self, profile: str):
-        '''Decide whether to follow the owner of a profile page.'''
+        '''Produce action on a profile page.'''
 
         # Make customizable for different interventions (show follower count, political stance, etc..)
         prompt = f'''You are viewing a user's profile page.
@@ -102,15 +109,16 @@ Output only the JSON required by the schema. No explanations.
 PROFILE PAGE:
 {profile}'''
         
-        action: ProfileAction = self.get_llm_response(prompt, ProfileAction)
+        action: ProfileAction = self.produce_request(prompt, ProfileAction)
 
         return action
 
     def sys_instructions(self):
-        '''Generates instructions to define Agent's persona and more.'''
+        '''Generates instructions to define Agent's persona and set rules.'''
 
-        sys_msg = f'''You are a user on a social media platform. Follow these rules exactly.
-OUTPUT: Only a JSON object matching the schema. No extra text.
+        sys_msg = f'''You are a user on a social media platform.
+Your task is to perform an action in response to the prodived POST_FEED and NEWS_FEED.
+Follow these rules exactly.
 
 ACTIONS:
 - Choose exactly one: REPOST, WRITE_POST, or OBSERVE.
@@ -119,22 +127,40 @@ ACTIONS:
 - OBSERVE: post_content and repost_target_id must be null.
 
 LIKES/DISLIKES:
+- LIKE posts that align with your persona.
+- DISLIKE posts that oppose them.
 - Like/dislike only IDs from POST FEED.
 - Never like and dislike the same post.
 
 PROFILE:
 - Choose exactly one: FOLLOW or LEAVE.
 
-PRIORITY: These rules override persona. After rules, act in character per persona.
-
-FINAL CHECK (internal): verify all rules and that JSON matches schema.
-
 PERSONA:
-{self.persona}'''
+- Embody the following persona.
+
+[persona start]
+{self.persona}
+[persona end]
+
+OUTPUT:
+- Only the JSON object defined by the provided response format. No extra text.'''
 
         return sys_msg
-            
-    def get_llm_response(self, prompt, response_format):
+
+    # Handle errors with tenacity (mainly to handle rate limit)
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.ERROR)
+
+    @retry(
+            before_sleep=before_sleep_log(logger, logging.ERROR),
+            wait=wait_exponential(min=1, max=16),
+            stop=stop_after_attempt(6)
+    )
+    def get_llm_response(self, **kwargs):
+        self.requests += 1
+        return Agent.llm_client.beta.chat.completions.parse(**kwargs)
+
+    def produce_request(self, prompt, response_format):
 
         model = Agent.llm_model
         sys_msg = self.sys_instructions()
@@ -148,15 +174,29 @@ PERSONA:
                 "text": prompt}]}
                 ]
 
+        # Request break for testing
         if Agent.request_control != 'auto':
             Agent.request_control = input(f'Agent {self.a_id} is about to send LLM request. Press Enter to continue...').strip()
 
-        response = Agent.llm_client.beta.chat.completions.parse(
+        # Send request
+        response = self.get_llm_response(
             model=model,
             messages=messages,
             response_format=response_format,
             max_completion_tokens=1000
         )
-        time.sleep(0.12) # respect api rate limit
 
-        return response.choices[0].message.parsed
+        # Track token data
+        self.used_tokens_input += response.usage.prompt_tokens
+        self.used_tokens_output += response.usage.completion_tokens
+        self.used_tokens_cached += response.usage.prompt_tokens_details.cached_tokens
+
+        message = response.choices[0].message
+
+        if message.refusal:
+            self.req_refusals += 1
+
+            # retry?? or fix with pydantic validator
+        else:
+            self.valid_responses += 1
+            return message.parsed
