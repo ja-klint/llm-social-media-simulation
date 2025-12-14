@@ -17,7 +17,8 @@ class Post():
         self.dislikes: list[Agent] = []
 
 class Platform():
-    def __init__(self, news_path: Path, agents: dict[int, Agent] = {}, posts: dict[int, Post] = {}):
+    def __init__(self, intervention: str, news_path: Path, agents: dict[int, Agent] = {}, posts: dict[int, Post] = {}):
+        self.intervention = intervention
         self.news_path = news_path
         self.news_data = self.load_news()
         self.agents: dict[int, Agent] = agents # key: a_id, value: Agent object
@@ -26,7 +27,8 @@ class Platform():
     def load_news(self):
         '''Load all news headlines.'''
 
-        news_data = []
+        # Store in tuples, and only keep headline and description for memory efficiency.
+        news_data: list[tuple] = []
         with open(self.news_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 news = json.loads(line)
@@ -43,46 +45,57 @@ class Platform():
         else:
             return post
 
+    def post_str(self, post: Post) -> str:
+        '''Generate string representation of a post based on intervention.'''
+
+        # Display original post id (don't show repost id)
+        if post.is_repost:
+            post_id = post.ref_post_id
+        else:
+            post_id = post.p_id
+
+        post_str = ''
+        post_str += f'Post ID: {post_id}'
+
+        if self.intervention == 'SOCIAL_PROOF':
+            post_str += f'\nLikes: {len(post.likes)}'
+            post_str += f'\nDislikes: {len(post.dislikes)}'
+            post_str += f'\nReposts: {len(post.reposters)}'
+
+        if self.intervention == 'IDENTITY':
+            post_str += f'\nAuthor party: {post.author.party}'
+        
+        post_str += f'\nContent: {post.content}\n\n'
+
+        return post_str
+
     def get_post_feed(self, viewer: Agent, number: int = 5) -> tuple[str, list[int]]:
         '''Generate string representation of an agent's post feed.'''
         
         # Pick {number} posts from self.posts
-        # Use if statements to customize what info is shown based on intervention
         post_list: list[Post] = []
 
-        if True: # Change to if intervention == reverse chronological
+        # select most recent posts that are not from the viewing agent
+        all_p_ids = list(self.posts.keys())
+        all_p_ids.sort(reverse=True)
+
+        for i in all_p_ids:
+            post = self.get_original_post(i)
+
+            # filter out viewers own posts and reposts
+            if (viewer != post.author) and (viewer not in post.reposters):
+                post_list.append(post)
             
-            # select most recent posts that are not from the viewing agent
-            all_p_ids = list(self.posts.keys())
-            all_p_ids.sort(reverse=True)
-
-            for i in all_p_ids:
-
-                post = self.get_original_post(i)
-
-                if (viewer != post.author) and (viewer not in post.reposters): # filter out viewers own posts and reposts
-                    post_list.append(post)
-                
-                # break at desired number of posts
-                if len(post_list) >= number:
-                    break
+            # break at desired number of posts
+            if len(post_list) >= number:
+                break
 
         # add posts to feed string
         post_feed = ''
         
         for post in post_list:
-            # Display original post id (don't show repost id)
-            if post.is_repost:
-                post_id = post.ref_post_id
-            else:
-                post_id = post.p_id
-
-            post_feed += f'Post ID: {post_id}'
-            post_feed += f'\nLikes: {len(post.likes)}'
-            post_feed += f'\nDislikes: {len(post.dislikes)}'
-            post_feed += f'\nContent: {post.content}\n\n'
+            post_feed += self.post_str(post)
             
-
         if post_feed == '':
             post_feed = 'Empty'
 
@@ -90,7 +103,7 @@ class Platform():
 
         return (post_feed.rstrip(), shown_post_ids) # Returns post feed string and a list of the post ids being presented
     
-    def get_news_feed(self, rng_generator, number: int = 5) -> str:
+    def get_news_feed(self, rng_generator, number: int = 4) -> str:
         '''Generate string representation of a random news feed using provided Generator object.'''
 
         # select random (by category for intervention?)
@@ -110,8 +123,8 @@ class Platform():
         if post_id:
             return self.posts[post_id].author
     
-    def get_profile_posts(self, agent: Agent) -> list[Post]:
-        '''Get the most recent posts and reposts from agent.'''
+    def get_recent_posts(self, agent: Agent) -> str:
+        '''Generate string representation of an agents most recent posts and reposts.'''
 
         recent_posts = []
         all_p_ids = list(self.posts.keys())
@@ -119,46 +132,40 @@ class Platform():
 
         for i in all_p_ids:
             post = self.get_original_post(i)
-            if post.author == agent:
+            if post.author == agent or agent in post.reposters:
                 recent_posts.append(post)
 
             # break at desired number
             if len(recent_posts) >= 3:
                 break
 
-        return recent_posts
-    
-    def get_mutual_follows(self, agent1: Agent, agent2: Agent):
-        '''Return the number of '''
-        pass # prob remove
+            recent_posts_str = ''
+            for post in recent_posts:
+                recent_posts_str += self.post_str(post)
+
+        return recent_posts_str if recent_posts_str else 'Empty'
 
     def get_profile(self, agent: Agent, viewer: Agent) -> str:
         '''Generate string representation of an agent's profile.'''
 
-        agent_id = agent.a_id
-        followers = len(agent.followers)
-        party = agent.party
-
-        bio = agent.bio
-        recent_posts = self.get_profile_posts(agent=agent)
-
         # Construct profile page based on intervention
-        profile = f'User ID: {agent_id}'
+        profile = f'User ID: {agent.a_id}'
         
-        if True:
-            profile += f'\nPolitical party: {party}'
+        # Political party
+        if self.intervention == 'IDENTITY':
+            profile += f'\nPolitical party: {agent.party}'
         
-        if True:
-            profile += f'\nFollowers: {followers}'
+        # Followers
+        if self.intervention == 'SOCIAL_PROOF':
+            profile += f'\nFollowers: {len(agent.followers)}'
         
-        profile += f'\nBio: {bio}'
+        # Bio
+        if self.intervention == 'IDENTITY':
+            profile += f'\nBio: {agent.bio}'
         
+        # Recent posts and reposts
         profile += '\n\nRecent posts and reposts:\n'
-        for post in recent_posts:
-            profile += f'Post ID: {post.p_id}'
-            profile += f'\nLikes: {len(post.likes)}'
-            profile += f'\nDislikes: {len(post.dislikes)}'
-            profile += f'\nContent: {post.content}\n\n'
+        profile += self.get_recent_posts(agent)
 
         return profile.rstrip()
     
@@ -169,7 +176,8 @@ class Platform():
             post_id = int(max(self.posts.keys())+1)
         else:
             raise ValueError('Tried to repost non-existent post.')
-        
+
+        # Create post with reference to original
         re_post = Post(timestep, post_id, author, is_repost=True, ref_post_id=ref_post_id)
 
         # add post to platform
