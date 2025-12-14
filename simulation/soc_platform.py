@@ -69,7 +69,7 @@ class Platform():
 
         return post_str
 
-    def get_post_feed(self, viewer: Agent, number: int = 5) -> tuple[str, list[int]]:
+    def get_post_feed(self, viewer: Agent, number: int = 8) -> tuple[str, list[int]]:
         '''Generate string representation of an agent's post feed.'''
         
         # Pick {number} posts from self.posts
@@ -83,7 +83,7 @@ class Platform():
             post = self.get_original_post(i)
 
             # filter out viewers own posts and reposts
-            if (viewer != post.author) and (viewer not in post.reposters):
+            if (viewer != post.author) and (viewer not in post.reposters) and (post not in post_list):
                 post_list.append(post)
             
             # break at desired number of posts
@@ -132,7 +132,7 @@ class Platform():
 
         for i in all_p_ids:
             post = self.get_original_post(i)
-            if post.author == agent or agent in post.reposters:
+            if (post.author == agent or agent in post.reposters) and (post not in recent_posts):
                 recent_posts.append(post)
 
             # break at desired number
