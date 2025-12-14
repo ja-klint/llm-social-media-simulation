@@ -18,13 +18,12 @@ class Simulation():
         self.num_agents = num_agents
         self.num_timesteps = num_timesteps
         self.intervention = intervention
-        self.agents_path = agents_path
         self.openai_model = openai_model
 
         self.run_id = self.get_run_id(kwargs)
         self.agents_path = self.get_agents_path(kwargs)
 
-        self.platform = Platform(agents=self.load_agents(), news_path=news_path)
+        self.platform = Platform(intervention=self.intervention, agents=self.load_agents(), news_path=news_path)
 
         # Use same RNG seeds for corresponding runs for all interventions (blocking)
         self.agent_rng = np.random.default_rng([abs(self.run_id), 0]) # RNG generator for random agent selection
@@ -63,7 +62,8 @@ class Simulation():
         
     def pick_agent(self) -> Agent:
         '''Select random agent to act for the timestep. Using rng seed based on run_id.'''
-        return self.platform.agents[self.agent_rng.integers(1, len(self.platform.agents), endpoint=True)]
+        agent_ids = list(self.platform.agents.keys())
+        return self.platform.agents[self.agent_rng.choice(agent_ids)]
 
     def log_timestep(self, agent_id: int,
                     action: str | None, post_id: int | None, post_content: str | None,
@@ -92,7 +92,7 @@ class Simulation():
         
 
     def perform_timestep(self):
-        print('Timestep:', self.timestep)
+        # print('Timestep:', self.timestep)
         
         # # set default values for new timestep
             
@@ -106,7 +106,7 @@ class Simulation():
         
         # select one agent to perform actions
         agent: Agent = self.pick_agent()
-        print('Picked agent:', agent)
+        # print('Picked agent:', agent)
 
         # get feed, ask for action
         post_feed, shown_post_ids = self.platform.get_post_feed(agent)
@@ -115,9 +115,9 @@ class Simulation():
         feed_action = agent.feed_action(post_feed=post_feed, news_feed=news_feed)
         action = feed_action.action
         repost_target_id = feed_action.repost_target_id
-        print('---------------------------------------------------------------------')
-        print(feed_action.action)
-        print(feed_action.post_content)
+        # print('---------------------------------------------------------------------')
+        # print(feed_action.action)
+        # print(feed_action.post_content)
 
         if action == 'REPOST':
             
@@ -132,7 +132,7 @@ class Simulation():
             if author not in agent.following.values():
                 profile = self.platform.get_profile(agent=author, viewer=agent)
                 profile_action = agent.profile_action(profile=profile)
-                print(profile_action.action)
+                # print(profile_action.action)
 
                 if profile_action.action == 'FOLLOW':
                     followed = author.a_id
@@ -235,13 +235,13 @@ Predicted cost: ${predicted_cost} ≈ {predicted_cost*9.45} SEK
 ''')
 
 if __name__ == "__main__":
-    # Example and test code:
+    # Example an test code:
     
-    run_id = -104 # test id
-    intervention = 'test'
+    run_id = -109 # test id
+    intervention = 'SOCIAL_PROOF'
 
-    num_agents = 5
-    num_timesteps = 5
+    num_agents = 9
+    num_timesteps = 25
     news_path = Path(__file__).parent.joinpath('News_Category_Dataset_v3.jsonl')
     agents_path = Path(__file__).parents[1].joinpath(f'generate_agents/test_agents.jsonl')
 
