@@ -20,12 +20,15 @@ class FeedAction(BaseModel):
     # Raise error if LLM output is incorrect
     @model_validator(mode='after')
     def check_feed_actions(self):
-        if self.action == 'REPOST' and self.repost_target_id == None:
-            raise ValueError('Action is REPOST but no repost_target_id provided')
+        if self.action == 'REPOST':
+            if self.repost_target_id == None:
+                raise ValueError('Action is REPOST but no repost_target_id provided')
+            self.post_content = None
         
         if self.action == 'WRITE_POST':
             if not self.post_content:
                 raise ValueError('Action is WRITE_POST but no post_content provided.')
+            self.repost_target_id = None
             
         if self.action == 'OBSERVE':
             self.repost_target_id = None
@@ -35,7 +38,7 @@ class FeedAction(BaseModel):
         self.likes = list(set(self.likes))
         self.dislikes = list(set(self.dislikes))
         if (set(self.likes) & set(self.dislikes)):
-            input('WARNING! Same post in likes and dislikes!')
+            raise ValueError('Same post in likes and dislikes!')
             
         return self
 
@@ -45,6 +48,10 @@ class ProfileAction(BaseModel):
     action: Literal['FOLLOW', 'LEAVE'] = Field(description='The decision to follow this user or not.')
 
 class Agent():
+
+    # Log errors
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.ERROR)
 
     # Defining a few variables that are used across all agents.
     llm_client: OpenAI = None # Set from simulation.py
@@ -83,8 +90,6 @@ class Agent():
 
 Choose one action and which POST IDs to like/dislike.
 
-Output only the JSON required by the schema. No explanations.
-
 POST FEED:
 {post_feed}
 
@@ -104,11 +109,9 @@ Choose one:
 1. FOLLOW the user.
 2. LEAVE the profile.
 
-Output only the JSON required by the schema. No explanations.
-
 PROFILE PAGE:
 {profile}'''
-        
+        print(prompt)
         action: ProfileAction = self.produce_request(prompt, ProfileAction)
 
         return action
@@ -123,8 +126,8 @@ Follow these rules exactly.
 ACTIONS:
 - Choose exactly one: REPOST, WRITE_POST, or OBSERVE.
 - REPOST: set repost_target_id to an ID from POST FEED. NEVER invent IDs.
-- WRITE_POST: base on exactly one NEWS_FEED headline; length 50–200 chars; do not repeat the headline verbatim; no hashtags.
-- OBSERVE: post_content and repost_target_id must be null.
+- WRITE_POST: write a post in post_content; base on exactly one NEWS_FEED headline; length 50–200 chars; do not repeat the headline verbatim; no hashtags.
+- OBSERVE: do nothing.
 
 LIKES/DISLIKES:
 - LIKE posts that align with your persona.
@@ -140,27 +143,28 @@ PERSONA:
 
 [persona start]
 {self.persona}
-[persona end]
-
-OUTPUT:
-- Only the JSON object defined by the provided response format. No extra text.'''
+[persona end]'''
 
         return sys_msg
 
-    # Handle errors with tenacity (mainly to handle rate limit)
-    logger = logging.getLogger(__name__)
-    logging.basicConfig(level=logging.ERROR)
-
-    @retry(
-            before_sleep=before_sleep_log(logger, logging.ERROR),
-            wait=wait_exponential(min=1, max=16),
-            stop=stop_after_attempt(6)
-    )
     def get_llm_response(self, **kwargs):
         self.requests += 1
         return Agent.llm_client.beta.chat.completions.parse(**kwargs)
 
     def produce_request(self, prompt, response_format):
+        try:
+            return self._produce_request_with_retry(prompt, response_format)
+        except Exception:
+            print('Warning! Forced fallback to OBSERVE!')
+            return response_format(action='OBSERVE')
+
+    # Handle errors with tenacity
+    @retry(
+            before_sleep=before_sleep_log(logger, logging.ERROR),
+            wait=wait_exponential(min=1, max=20),
+            stop=stop_after_attempt(7)
+    )
+    def _produce_request_with_retry(self, prompt, response_format):
 
         model = Agent.llm_model
         sys_msg = self.sys_instructions()
@@ -195,8 +199,8 @@ OUTPUT:
 
         if message.refusal:
             self.req_refusals += 1
+            raise ValueError('LLM refused response.')
 
-            # retry?? or fix with pydantic validator
         else:
             self.valid_responses += 1
             return message.parsed
