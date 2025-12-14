@@ -163,6 +163,9 @@ class Simulation():
 
         # Start timer
         start_time = time.time()
+        
+        # Init progress counter
+        prev_progess = 0
 
         # Get timestep range
         timesteps = range(start_timestep, self.num_timesteps+1)
@@ -176,17 +179,19 @@ class Simulation():
 
             # Print progress every 5% of timesteps
             progress = 100*timestep/timesteps[-1]
-            if round(progress, 0) % 5 == 0:
+            if progress >= prev_progess + 5:
                 bars = int(round(progress/5, 0))
                 dashes = 20-bars
                 progress_bar = '█'*bars + '-'*dashes
 
                 elapsed_time = time.time()-start_time
                 est_remain = int(round((elapsed_time/(progress/100) - elapsed_time), 0))
-                est_time_str = f'{est_remain//3600}h:{est_remain%3600//60}m:{est_remain%60}s'
+                est_time_str = f'{est_remain//3600}h : {est_remain%3600//60}m : {est_remain%60}s'
                         
-                print(f'Progress: |{progress_bar}| {progress}% Complete')
-                print(f'Estimated time remaining: {est_time_str}')
+                print(f'''
+Progress: |{progress_bar}| {progress}% Complete
+Estimated time remaining: {est_time_str}''')
+                prev_progess += 5
 
             # Refresh client every 500 timesteps
             if timestep % 500 == 0:
@@ -200,7 +205,7 @@ class Simulation():
         # Stop timer
         end_time = time.time()
         s = int(round((end_time-start_time), 0))
-        finish_time_string = f'{s//3600}h:{s%3600//60}m:{s%60}s'
+        finish_time_string = f'{s//3600}h : {s%3600//60}m : {s%60}s'
 
         # Get token usage and calculate cost
         total_input_tokens = sum(agent.used_tokens_input for agent in self.platform.agents.values())
@@ -230,18 +235,18 @@ Total LLM refusals: {total_refusals}
 Total input tokens: {total_input_tokens}
 Total output tokens: {total_output_tokens}
 Total cached tokens: {total_cached_tokens}
-Predicted cost: ${predicted_cost} ≈ {predicted_cost*9.45} SEK
+Predicted cost: ${predicted_cost} ≈ {round(predicted_cost*9.45, 2)} SEK
 ----------------------------------------------------------
 ''')
 
 if __name__ == "__main__":
     # Example an test code:
     
-    run_id = -109 # test id
-    intervention = 'SOCIAL_PROOF'
+    run_id = -110 # test id
+    intervention = 'test'
 
     num_agents = 9
-    num_timesteps = 25
+    num_timesteps = 100
     news_path = Path(__file__).parent.joinpath('News_Category_Dataset_v3.jsonl')
     agents_path = Path(__file__).parents[1].joinpath(f'generate_agents/test_agents.jsonl')
 
