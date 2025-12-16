@@ -17,12 +17,12 @@ class Post():
         self.dislikes: list[Agent] = []
 
 class Platform():
-    def __init__(self, intervention: str, news_path: Path, agents: dict[int, Agent] = {}, posts: dict[int, Post] = {}):
+    def __init__(self, intervention: str, news_path: Path, agents: dict[int, Agent] | None = None, posts: dict[int, Post] | None = None):
         self.intervention = intervention
         self.news_path = news_path
         self.news_data = self.load_news()
-        self.agents: dict[int, Agent] = agents # key: a_id, value: Agent object
-        self.posts: dict[int, Post] = posts # key: p_id, value: Post object
+        self.agents: dict[int, Agent] = agents if agents is not None else {} # key: a_id, value: Agent object
+        self.posts: dict[int, Post] = posts if posts is not None else {} # key: p_id, value: Post object
     
     def load_news(self):
         '''Load all news headlines.'''
@@ -32,7 +32,8 @@ class Platform():
         with open(self.news_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 news = json.loads(line)
-                news_data.append((news['headline'], news['short_description']))
+                if news['headline'] and news['short_description']: # filter out missing headlines and descriptions.
+                    news_data.append((news['headline'], news['short_description']))
         
         return news_data
         
@@ -69,7 +70,7 @@ class Platform():
 
         return post_str
 
-    def get_post_feed(self, viewer: Agent, number: int = 8) -> tuple[str, list[int]]:
+    def get_post_feed(self, viewer: Agent, number: int = 6) -> tuple[str, list[int]]:
         '''Generate string representation of an agent's post feed.'''
         
         # Pick {number} posts from self.posts
@@ -103,14 +104,13 @@ class Platform():
 
         return (post_feed.rstrip(), shown_post_ids) # Returns post feed string and a list of the post ids being presented
     
-    def get_news_feed(self, rng_generator, number: int = 4) -> str:
+    def get_news_feed(self, rng_generator, number: int = 5) -> str:
         '''Generate string representation of a random news feed using provided Generator object.'''
 
-        # select random (by category for intervention?)
         news_articles = rng_generator.choice(self.news_data, number, replace=False)
         news_feed = ''
         for news_item in news_articles:
-            news_feed += f'Headline: {news_item[0]}\n'
+            news_feed += f'Title: {news_item[0]}\n'
             news_feed += f'Description: {news_item[1]}\n\n'
 
         return news_feed.rstrip()
@@ -131,7 +131,10 @@ class Platform():
         all_p_ids.sort(reverse=True)
 
         for i in all_p_ids:
-            post = self.get_original_post(i)
+            post = self.posts[i]
+            if post.is_repost: # only consider original posts
+                continue
+
             if (post.author == agent or agent in post.reposters) and (post not in recent_posts):
                 recent_posts.append(post)
 
@@ -207,16 +210,18 @@ class Platform():
         '''Add agent to likes list for Post objects'''
 
         for post_id in post_ids:
-            if agent not in self.posts[post_id].likes:
-                self.posts[post_id].likes.append(agent)
-            if post_id not in agent.liked_posts:
-                agent.liked_posts.append(post_id)
+            if post_id in self.posts.keys():
+                if agent not in self.posts[post_id].likes:
+                    self.posts[post_id].likes.append(agent)
+                if post_id not in agent.liked_posts:
+                    agent.liked_posts.append(post_id)
     
     def register_dislikes(self, agent: Agent, post_ids: list[int]):
         '''Add agent to dislikes list for Post objects'''
 
         for post_id in post_ids:
-            if agent not in self.posts[post_id].dislikes:
-                self.posts[post_id].dislikes.append(agent)
-            if post_id not in agent.disliked_posts:
-                agent.disliked_posts.append(post_id)
+            if post_id in self.posts.keys():
+                if agent not in self.posts[post_id].dislikes:
+                    self.posts[post_id].dislikes.append(agent)
+                if post_id not in agent.disliked_posts:
+                    agent.disliked_posts.append(post_id)

@@ -7,9 +7,6 @@ from pathlib import Path
 import time
 import numpy as np
 import json
-from dotenv import load_dotenv
-
-load_dotenv(dotenv_path='simulation/api_keys.env')
 
 class Simulation():
 
@@ -49,7 +46,7 @@ class Simulation():
         a_path = kwargs.get('agents_path', None)
 
         if a_path == None:
-            a_path = Path(__file__).parents[1].joinpath(f'generate_agents/run{self.run_id}_agents.jsonl')
+            a_path = Path(__file__).parents[1].joinpath(f'generate_agents/run{abs(self.run_id)}_agents.jsonl')
 
         assert a_path.is_file(), f'No file found at {a_path.name}. Please generate agents with agent_generator.py or provide file path explicitly.'
         return a_path
@@ -58,8 +55,13 @@ class Simulation():
         with open(self.agents_path, 'r', encoding='utf-8', errors='ignore') as f:
             agent_list = [json.loads(line) for line in f]
 
+        if len(agent_list) < self.num_agents:
+            raise ValueError(f'agents_path includes {len(agent_list)} agents, num_agents is {self.num_agents}')
+        
         return {agent_dict['agent_id']: Agent(agent_dict) for i, agent_dict in enumerate(agent_list) if i < self.num_agents}
         
+        
+
     def pick_agent(self) -> Agent:
         '''Select random agent to act for the timestep. Using rng seed based on run_id.'''
         agent_ids = list(self.platform.agents.keys())
@@ -110,35 +112,29 @@ class Simulation():
 
         # get feed, ask for action
         post_feed, shown_post_ids = self.platform.get_post_feed(agent)
-        news_feed = self.platform.get_news_feed(self.news_rng) # fix to not load file each time
+        news_feed = self.platform.get_news_feed(self.news_rng)
 
-        feed_action = agent.feed_action(post_feed=post_feed, news_feed=news_feed)
+        feed_action = agent.feed_action(post_feed=post_feed, news_feed=news_feed, shown_post_ids=shown_post_ids)
         action = feed_action.action
         repost_target_id = feed_action.repost_target_id
-        # print('---------------------------------------------------------------------')
-        # print(feed_action.action)
-        # print(feed_action.post_content)
 
         if action == 'REPOST':
             
-            # get profile of post author and ask to follow or not
-            # only if agent is not already followed
-
             post = self.platform.repost(timestep=self.timestep, author=agent, ref_post_id=repost_target_id)
             post_id = post.p_id
             self.platform.posts[repost_target_id].reposters.append(agent) # add agent to reposters
+            
+            # get profile of post author and ask to follow or not
+            # only if agent is not already followed
 
             author = self.platform.get_author(post_id=repost_target_id)
             if author not in agent.following.values():
                 profile = self.platform.get_profile(agent=author, viewer=agent)
                 profile_action = agent.profile_action(profile=profile)
-                # print(profile_action.action)
 
                 if profile_action.action == 'FOLLOW':
                     followed = author.a_id
                     self.platform.register_follow(follower=agent, target=author)
-            else:
-                print('TEST! ALREADY FOLLOWED------------------------')
 
         if action == 'WRITE_POST':
             # register post on platform and get Post object to log p_id and content
