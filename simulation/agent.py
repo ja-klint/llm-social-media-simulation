@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, model_validator, field_validator
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
+from pydantic import BaseModel, Field, model_validator
+from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 from typing import Literal, Optional
 import logging
 
@@ -12,7 +12,7 @@ class FeedAction(BaseModel):
     action: Literal['REPOST', 'WRITE_POST', 'OBSERVE'] = Field(description='The specific action you want to take.')
 
     repost_target_id: Optional[int] = Field(default=None, description='If action is REPOST, provide the corresponding Post ID here. Otherwise null.')
-    post_content: Optional[str] = Field(default=None, description='If action is WRITE_POST, write your post text here (MUST be 50–200 chars).', max_length=250)
+    post_content: Optional[str] = Field(default=None, description='If action is WRITE_POST, write your post text here (MAX 200 chars).', max_length=250)
 
     likes: list[int] = Field(default=[], description='List of Post IDs from POST FEED to like.')
     dislikes: list[int] = Field(default=[], description='List of Post IDs from POST FEED to dislike.')
@@ -56,7 +56,7 @@ class Agent():
     # Defining a few variables that are used across all agents.
     llm_client: OpenAI = None # Set from simulation.py
     llm_model: str = None # Set from main.py
-    request_control:str = '' # require human input before sending LLM request. 'auto' to disable.
+    request_control:str = 'auto' # require human input before sending LLM request. 'auto' to disable.
 
     def __init__(self, agent_dict: dict):
         
@@ -83,35 +83,34 @@ class Agent():
     def __str__(self):
         return f'#{self.a_id}. {self.party}'
     
-    def feed_action(self, post_feed: str, news_feed: str):
+    def feed_action(self, post_feed: str, news_feed: str, shown_post_ids: list[int]):
         '''Produce actions on the feed page.'''
 
-        prompt = f'''You are viewing your social media feed.
+        prompt = f'''You are viewing the MAIN PAGE.
 
-Choose one action and which POST IDs to like/dislike.
+Choose exactly one primary action and which posts from the POST FEED to like/dislike.
+
+MAIN PAGE:
 
 POST FEED:
 {post_feed}
 
 NEWS FEED:
 {news_feed}'''
-        print(prompt)
-        action: FeedAction = self.produce_request(prompt, FeedAction)
+        # print(prompt)
+        action: FeedAction = self.produce_request(prompt, FeedAction, shown_post_ids)
         return action
 
     def profile_action(self, profile: str):
         '''Produce action on a profile page.'''
 
-        # Make customizable for different interventions (show follower count, political stance, etc..)
-        prompt = f'''You are viewing a user's profile page.
+        prompt = f'''You are viewing a user's PROFILE PAGE.
 
-Choose one:
-1. FOLLOW the user.
-2. LEAVE the profile.
+Choose exactly one action.
 
 PROFILE PAGE:
 {profile}'''
-        print(prompt)
+        # print(prompt)
         action: ProfileAction = self.produce_request(prompt, ProfileAction)
 
         return action
@@ -120,30 +119,32 @@ PROFILE PAGE:
         '''Generates instructions to define Agent's persona and set rules.'''
 
         sys_msg = f'''You are a user on a social media platform.
-Your task is to perform an action in response to the prodived POST_FEED and NEWS_FEED.
-Follow these rules exactly.
 
-ACTIONS:
-- Choose exactly one: REPOST, WRITE_POST, or OBSERVE.
-- REPOST: set repost_target_id to an ID from POST FEED. NEVER invent IDs.
-- WRITE_POST: write a post in post_content; base on exactly one NEWS_FEED headline; length 50–200 chars; do not repeat the headline verbatim; no hashtags.
-- OBSERVE: do nothing.
+Your task is to choose actions based on the given persona and the current page.
+You are on exactly one page at a time, specified in the user message.
+You must choose exactly one primary action per page.
 
-LIKES/DISLIKES:
-- LIKE posts that align with your persona.
-- DISLIKE posts that oppose them.
-- Like/dislike only IDs from POST FEED.
-- Never like and dislike the same post.
+MAIN PAGE:
+Primary actions:
+- REPOST: share an existing post from the POST FEED (must align with persona; use an ID from POST FEED; only if POST FEED is not empty)
+- OBSERVE: just observe.
+- WRITE_POST: write a post based on one NEWS FEED headline (must align with persona; max 200 chars; do not repeat headline verbatim; no quotes or hashtags)
 
-PROFILE:
-- Choose exactly one: FOLLOW or LEAVE.
+Secondary actions:
+LIKE and DISLIKE any number of posts.
+Like/dislike only IDs from POST FEED.
+Never like and dislike the same post.
+
+PROFILE PAGE:
+Primary actions:
+- FOLLOW the user.
+- LEAVE without following.
 
 PERSONA:
-- Embody the following persona.
-
-[persona start]
 {self.persona}
-[persona end]'''
+
+BEHAVIOUR:
+Your behavior must be strongly consistent with the persona.'''
 
         return sys_msg
 
@@ -151,20 +152,21 @@ PERSONA:
         self.requests += 1
         return Agent.llm_client.beta.chat.completions.parse(**kwargs)
 
-    def produce_request(self, prompt, response_format):
+    def produce_request(self, prompt, response_format, shown_post_ids: list[int] = None):
         try:
-            return self._produce_request_with_retry(prompt, response_format)
-        except Exception:
-            print('Warning! Forced fallback to OBSERVE!')
+            return self._produce_request_with_retry(prompt, response_format, shown_post_ids)
+        except Exception as e:
+            print(f'WARNING: Agent {self.a_id} forced OBSERVE fallback. Error: {e}')
+            self.req_refusals += 1
             return response_format(action='OBSERVE')
 
     # Handle errors with tenacity
     @retry(
             before_sleep=before_sleep_log(logger, logging.ERROR),
             wait=wait_exponential(min=1, max=20),
-            stop=stop_after_attempt(7)
+            stop=stop_after_attempt(12)
     )
-    def _produce_request_with_retry(self, prompt, response_format):
+    def _produce_request_with_retry(self, prompt, response_format, shown_post_ids: list[int] = None):
 
         model = Agent.llm_model
         sys_msg = self.sys_instructions()
@@ -200,7 +202,24 @@ PERSONA:
         if message.refusal:
             self.req_refusals += 1
             raise ValueError('LLM refused response.')
+        
+        # Check for invalid likes, dislikes and reposts
+        if shown_post_ids is not None:
+            shown_set = set(shown_post_ids)
 
-        else:
-            self.valid_responses += 1
-            return message.parsed
+            invalid_likes = set(message.parsed.likes) - shown_set
+            invalid_dislikes = set(message.parsed.dislikes) - shown_set
+            invalid_repost = (message.parsed.action == 'REPOST' and message.parsed.repost_target_id not in shown_set)
+
+            if invalid_likes or invalid_dislikes or invalid_repost:
+                raise ValueError(
+                    f"Invalid feed action by agent {self.a_id}: "
+                    f"invalid_likes={invalid_likes}, "
+                    f"invalid_dislikes={invalid_dislikes}, "
+                    f"repost_target_id={message.parsed.repost_target_id}, "
+                    f"shown_post_ids={shown_post_ids}"
+                )
+
+
+        self.valid_responses += 1
+        return message.parsed
