@@ -3,7 +3,7 @@ api_keys.env
 
 # Hide some test stuff
 all_personas.json
-*agents.jsonl
+test_agents.jsonl
 test.py
 analysis_test.py
 
