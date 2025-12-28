@@ -60,8 +60,6 @@ class Simulation():
         
         return {agent_dict['agent_id']: Agent(agent_dict) for i, agent_dict in enumerate(agent_list) if i < self.num_agents}
         
-        
-
     def pick_agent(self) -> Agent:
         '''Select random agent to act for the timestep. Using rng seed based on run_id.'''
         agent_ids = list(self.platform.agents.keys())
@@ -146,8 +144,8 @@ class Simulation():
             pass
 
         # only keep new likes and dislikes
-        likes = list(set(feed_action.likes) - set(agent.liked_posts))
-        dislikes = list(set(feed_action.dislikes) - set(agent.disliked_posts))
+        likes = list(set(feed_action.likes) - set(agent.liked_posts) - set(agent.disliked_posts))
+        dislikes = list(set(feed_action.dislikes) - set(agent.liked_posts) - set(agent.disliked_posts))
 
         self.platform.register_likes(agent, likes)
         self.platform.register_dislikes(agent, dislikes)
