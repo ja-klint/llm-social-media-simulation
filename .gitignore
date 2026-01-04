@@ -5,7 +5,7 @@ api_keys.env
 all_personas.json
 test_agents.jsonl
 test.py
-analysis_test.py
+test/
 
 # Hide data files
 data/
