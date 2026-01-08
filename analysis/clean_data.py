@@ -103,32 +103,35 @@ def prepare_p(df_t: pd.DataFrame, df_p: pd.DataFrame) -> pd.DataFrame:
 
 def prepare_a(df_t: pd.DataFrame, df_a: pd.DataFrame) -> pd.DataFrame:
     '''
-    Add following (list), followers (list), written_post_ids (list), reposted_post_ids (list), liked_post_ids (list), and disliked_post_ids (list) for each agent.
+    Add follows (list), followers (list), written_post_ids (list), reposted_post_ids (list), liked_post_ids (list), and disliked_post_ids (list) for each agent.
     
     :param df_t: Timesteps dataframe
     :type df_t: DataFrame
     :param df_t: Posts dataframe
     :type df_t: DataFrame
-    :return: Agents dataframe with added metrics. Columns: ['run_id', 'intervention', 'agent_id', 'party', 'bio', 'persona', 'followed', 'followers', 'written_post_ids', 'reposted_post_ids', 'liked_post_ids', 'disliked_post_ids']
+    :return: Agents dataframe with added metrics. Columns: ['run_id', 'intervention', 'agent_id', 'party', 'bio', 'persona', 'follows', 'followers', 'num_followers', 'written_post_ids', 'reposted_post_ids', 'liked_post_ids', 'disliked_post_ids']
     :rtype: DataFrame
     '''
     
-    # count and add FOLLOWS and FOLLOWERS
+
+    # add follows
     follows = df_t[df_t['is_follow'] == 1][['run_id', 'intervention', 'agent_id', 'followed_agent_id']]
+    follows = follows.groupby(['run_id', 'intervention', 'agent_id'])['followed_agent_id']
+    follows = follows.aggregate(func=list).reset_index().rename(columns={'followed_agent_id': 'follows'})
 
-    # add followed
-    followed = follows.groupby(['run_id', 'intervention', 'agent_id'])['followed_agent_id']
-    followed = followed.aggregate(func=list).reset_index().rename(columns={'followed_agent_id': 'followed'})
-
-    df_a = df_a.merge(followed, on=['run_id', 'intervention', 'agent_id'], how='left')
-    df_a['followed'] = df_a['followed'].apply(lambda x: x if isinstance(x, list) else [])
+    df_a = df_a.merge(follows, on=['run_id', 'intervention', 'agent_id'], how='left')
+    df_a['follows'] = df_a['follows'].apply(lambda x: x if isinstance(x, list) else [])
 
     # add followers
-    followers = follows.groupby(['run_id', 'intervention', 'followed_agent_id'])['agent_id']
+    followers = df_t[df_t['is_follow'] == 1][['run_id', 'intervention', 'agent_id', 'followed_agent_id']]
+    followers = followers.groupby(['run_id', 'intervention', 'followed_agent_id'])['agent_id']
     followers = followers.aggregate(func=list).reset_index().rename(columns={'agent_id': 'followers', 'followed_agent_id': 'agent_id'})
 
     df_a = df_a.merge(followers, on=['run_id', 'intervention', 'agent_id'], how='left')
     df_a['followers'] = df_a['followers'].apply(lambda x: x if isinstance(x, list) else [])
+
+    # Add num_followers
+    df_a['num_followers'] = df_a['followers'].apply(len)
 
     # Add written_post_ids
     written_posts = df_t[df_t['action'] == 'WRITE_POST'][['run_id', 'intervention', 'agent_id', 'post_id']]
@@ -168,7 +171,20 @@ def prepare_a(df_t: pd.DataFrame, df_a: pd.DataFrame) -> pd.DataFrame:
     df_a = df_a.merge(disliked_posts, on=['run_id', 'intervention', 'agent_id'], how='left')
     df_a['disliked_post_ids'] = df_a['disliked_post_ids'].apply(lambda x: x if isinstance(x, list) else [])
 
+    # Add counts for actions
+    action_counts = df_t.groupby(['run_id', 'intervention', 'agent_id'])['action']
+    action_counts = action_counts.value_counts().unstack(fill_value=0).reset_index().rename(columns={'WRITE_POST': 'num_post_action', 'REPOST': 'num_repost_action', 'OBSERVE': 'num_observe_action'})
+
+    df_a = df_a.merge(action_counts, on=['run_id', 'intervention', 'agent_id'], how='left')
+
     return df_a
+
+def save_data(df_p: pd.DataFrame, df_a: pd.DataFrame, save_path: Path):
+
+    save_path.mkdir(exist_ok=True, parents=True)
+    
+    df_p.to_excel(save_path / 'posts_data.xlsx', index=False)
+    df_a.to_excel(save_path / 'agents_data.xlsx', index=False)
 
 if __name__ == '__main__':
 
@@ -186,10 +202,5 @@ if __name__ == '__main__':
     df_p = prepare_p(df_t, df_p)
     df_a = prepare_a(df_t, df_a)
 
-    # print("Columns:", df_t.columns, "\n")
-    # print(df_t.head(25))
-    # print("Columns:", df_p.columns, "\n")
-    # print(df_p.head(25))
-    # print("Columns:", df_a.columns, "\n")
-    # print(df_a.head(25))
-
+    save_path = Path(__file__).parent.joinpath('processed_data')
+    save_data(df_p, df_a, save_path)
